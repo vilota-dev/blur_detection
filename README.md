@@ -18,6 +18,7 @@ blur_detection_repo/
 ├── models/                     # Directory for model weights (Requires manual download)
 ├── conda.yaml                  # Unified Conda environment dependencies
 └── README.md                   # Project documentation
+```
 
 ---
 
