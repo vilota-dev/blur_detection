@@ -159,7 +159,7 @@ class Sam3BuildingSegmenter:
 # -----------------------------
 # Directional crop
 # -----------------------------
-def directional_crop_and_pad(image, bboxes, target_size=(200, 200), bg_color=(0, 0, 0), shift_left_pixels=50):
+def directional_crop_and_pad(image, bboxes, target_size=(200, 200), bg_color=(0, 0, 0), dx=-50, dy=0):
     img_h, img_w = image.shape[:2]
     target_w, target_h = target_size
     far_bbox = max(bboxes, key=lambda b: b[2])
@@ -167,9 +167,12 @@ def directional_crop_and_pad(image, bboxes, target_size=(200, 200), bg_color=(0,
     anchor_right_x = f_x1
     anchor_center_y = (f_y0 + f_y1) // 2
 
-    crop_x1 = anchor_right_x - shift_left_pixels
+    # dx < 0 shifts left, dx > 0 shifts right
+    crop_x1 = anchor_right_x + dx
     crop_x0 = crop_x1 - target_w
-    crop_y0 = anchor_center_y - (target_h // 2)
+    
+    # dy < 0 shifts up, dy > 0 shifts down
+    crop_y0 = anchor_center_y - (target_h // 2) + dy
     crop_y1 = crop_y0 + target_h
 
     if crop_x0 < 0:
@@ -252,17 +255,23 @@ class BlurClassifier(nn.Module):
         features = self.backbone.forward_features(x)
         cls_token = features["x_norm_clstoken"]
         patch_tokens = features["x_norm_patchtokens"]
+        
         mask_weights = patch_mask.float().unsqueeze(-1)
         weighted_patches = patch_tokens * mask_weights
         summed_patches = weighted_patches.sum(dim=1)
         valid_patch_count = mask_weights.sum(dim=1) + 1e-6
         masked_patch_mean = summed_patches / valid_patch_count
+
         dino_feature = torch.cat([cls_token, masked_patch_mean], dim=1)
+
         pooled_laplacian = F.adaptive_avg_pool2d(laplacian_tensor, (14, 14))
         flat_laplacian = pooled_laplacian.view(pooled_laplacian.size(0), -1)
         laplacian_features = self.laplacian_projector(flat_laplacian)
+
         fused_input = torch.cat([dino_feature, laplacian_features], dim=1)
+
         logits = self.classifier_head(fused_input)
+
         return logits
 
 # -----------------------------
@@ -271,24 +280,31 @@ class BlurClassifier(nn.Module):
 def get_horizontal_patch_mask_from_array(img_bgr, image_size=224, patch_size=16, threshold=50):
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     gray = cv2.resize(gray, (image_size, image_size))
+
     sobel_y = cv2.Sobel(gray, cv2.CV_64F, dx=0, dy=1, ksize=3)
     abs_sobel_y = np.absolute(sobel_y)
+
     if abs_sobel_y.max() == 0:
         sobel_8u = np.zeros_like(abs_sobel_y, dtype=np.uint8)
     else:
         sobel_8u = np.uint8(255 * abs_sobel_y / np.max(abs_sobel_y))
+
     _, binary_mask = cv2.threshold(sobel_8u, threshold, 255, cv2.THRESH_BINARY)
     mask_tensor = torch.tensor(binary_mask, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
     patch_mask_2d = F.max_pool2d(mask_tensor, kernel_size=patch_size, stride=patch_size)
     patch_mask_flat = patch_mask_2d.view(-1) > 0
+
     return patch_mask_flat
 
 def get_laplacian_tensor_from_array(img_bgr):
     pil = Image.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB))
     gray = pil.convert("L")
     gray_t = torch.from_numpy(np.array(gray)).float().unsqueeze(0).unsqueeze(0) / 255.0
+
     lap_kernel = torch.tensor([[[[0, 1, 0], [0, -2, 0], [0, 1, 0]]]], dtype=torch.float32)
+
     lap = F.conv2d(gray_t, lap_kernel, padding=1)
+
     return torch.abs(lap)
 
 def get_grid_cell_from_name(filename):
@@ -347,7 +363,7 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
 
     import torchvision.transforms as T
     dino_transform = T.Compose([
-        T.Resize((224, 224)),
+        T.Resize((224, 224), interpolation=T.InterpolationMode.BICUBIC),
         T.ToTensor(),
         T.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
     ])
@@ -360,13 +376,17 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
 
     raw_predictions = []
     
-    # UI Elements for progress tracking
     progress_bar = st.progress(0)
     status_text = st.empty()
     total_images = len(image_paths)
 
+    # LOCKED: Hardcoded ID mapping so users cannot change it via config or UI
+    ID_TO_LABEL = {0: 'f', 1: 'o', 2: 'sn', 3: 'n'}
+    
+    # Get shifts from config
+    pos_shifts = config.get("position_shifts", {})
+
     for idx, img_p in enumerate(image_paths):
-        # Update UI
         status_text.text(f"Processing {idx + 1}/{total_images}: {img_p.name}")
         sn, position = extract_sn_and_pos(img_p.name)
 
@@ -379,7 +399,6 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
 
         result = segmenter.add_text_prompt("building")
         
-        # Track Failed Segmentations properly
         if not result or len(result.get("masks", [])) == 0:
             raw_predictions.append({
                 "SN": sn, "Position": position, "Prediction": "Seg Failed",
@@ -408,10 +427,14 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
             })
             continue
 
+        # Extract specific dx/dy for this position (fallback to -50, 0 if not found)
+        dx, dy = pos_shifts.get(position, pos_shifts.get(str(position), [-50, 0]))
+
         final_image = directional_crop_and_pad(
             crop, bboxes,
             target_size=tuple(config.get("target_size", (200, 200))),
-            shift_left_pixels=config.get("shift_left_pixels", 50),
+            dx=dx,
+            dy=dy
         )
 
         input_tensor = dino_transform(Image.fromarray(cv2.cvtColor(final_image, cv2.COLOR_BGR2RGB))).unsqueeze(0).to(device)
@@ -433,7 +456,8 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
             defect_idxs = [i for i in range(len(probs)) if i != ok_idx]
             defect_probs = probs[defect_idxs]
             max_idx = defect_idxs[int(torch.argmax(defect_probs).item())]
-            final_pred = config.get("id_to_label", {0: "f", 1: "o", 2: "sn", 3: "n"}).get(max_idx, str(max_idx))
+            # Use hardcoded ID mapping
+            final_pred = ID_TO_LABEL.get(max_idx, str(max_idx))
             conf = probs[max_idx].item()
             action = "Review (Flagged for Double Check)"
 
@@ -450,6 +474,7 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
         del input_tensor, patch_mask, lap, logits, probs
         if idx % 50 == 0:
             torch.cuda.empty_cache()
+            import gc
             gc.collect()
 
         progress_bar.progress((idx + 1) / total_images)
@@ -486,54 +511,70 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
     df_final.to_csv(full_csv, index=False)
     df_final.to_excel(full_xlsx, index=False)
 
-    paired = [(f"pos {p} predict", f"pos {p} confidence") for p in target_positions]
-    pred_frame = pd.DataFrame({pred: df_final[pred] for pred, _ in paired})
-    conf_frame = pd.DataFrame({
-        conf: pd.to_numeric(df_final[conf].astype(str).str.replace("%", "", regex=False), errors="coerce")
-        for _, conf in paired
-    })
-
-    has_n = pred_frame.eq("n").any(axis=1)
-    sn_count_thresh = config.get("sn_count_threshold_percent", 35)
-    sn_count_required = config.get("sn_count_required", 3)
-    sn_single_thresh = config.get("sn_single_threshold_percent", 40)
-
-    sn_mask_count = (
-        pd.DataFrame({
-            pred: (pred_frame[pred] == "sn") & (conf_frame[conf] >= sn_count_thresh)
-            for pred, conf in paired
-        }).sum(axis=1) >= sn_count_required
-    )
+    # -----------------------------
+    # ADVANCED FILTERING LOGIC
+    # -----------------------------
+    paired_cols = [
+        (f'pos {pos} predict', f'pos {pos} confidence')
+        for pos in target_positions
+        if f'pos {pos} predict' in df_final.columns and f'pos {pos} confidence' in df_final.columns
+    ]
     
-    sn_mask_single = pd.DataFrame({
-        pred: (pred_frame[pred] == "sn") & (conf_frame[conf] >= sn_single_thresh)
-        for pred, conf in paired
-    }).any(axis=1)
+    if paired_cols:
+        # Clean dataframes
+        pred_frame = pd.DataFrame({pred_col: df_final[pred_col].astype(str).str.strip().str.lower() for pred_col, _ in paired_cols})
+        conf_frame = pd.DataFrame({conf_col: pd.to_numeric(df_final[conf_col].astype(str).str.replace('%', '', regex=False).str.strip(), errors='coerce') for _, conf_col in paired_cols})
 
-    selected_mask = has_n | sn_mask_count | sn_mask_single
-    df_filtered = df_final[selected_mask].copy()
+        # 1. Has 'n' mask
+        has_n_mask = pred_frame.eq('n').any(axis=1)
 
-    filtered_csv = output_path / config.get("filtered_csv", "predictions_with_n_or_three_high_conf_sn.csv")
-    filtered_xlsx = output_path / config.get("filtered_excel", "predictions_with_n_or_three_high_conf_sn.xlsx")
-    df_filtered.to_csv(filtered_csv, index=False)
-    df_filtered.to_excel(filtered_xlsx, index=False)
+        # 2. Single 'sn' threshold mask
+        sn_single_thresh = config.get("sn_single_threshold_percent", 45)
+        any_sn_single_mask = pd.DataFrame({
+            pred_col: (pred_frame[pred_col] == 'sn') & (conf_frame[conf_col] >= sn_single_thresh)
+            for pred_col, conf_col in paired_cols
+        }).any(axis=1)
 
-    for _, row in df_filtered.iterrows():
-        sn = row["SN"]
-        for pos in target_positions:
-            match = df_raw[(df_raw["SN"] == sn) & (df_raw["Position"] == pos)]
-            if not match.empty and match.iloc[0]["Prediction"] not in ["Seg Failed", "No Bbox"]:
-                src = Path(match.iloc[0]["image_path"])
-                dst_dir = out_filtered / str(sn)
-                dst_dir.mkdir(parents=True, exist_ok=True)
-                shutil.copy(src, dst_dir / src.name)
+        # 3. Optional Multiple 'sn' count mask
+        sn_count_thresh = config.get("sn_count_threshold_percent")
+        sn_count_req = config.get("sn_count_required")
+        
+        # Check if user explicitly defined BOTH count variables
+        if sn_count_thresh is not None and sn_count_req is not None:
+            sn_mask_count = (
+                pd.DataFrame({
+                    pred_col: (pred_frame[pred_col] == 'sn') & (conf_frame[conf_col] >= sn_count_thresh)
+                    for pred_col, conf_col in paired_cols
+                }).sum(axis=1) >= sn_count_req
+            )
+            selected_mask = has_n_mask | any_sn_single_mask | sn_mask_count
+        else:
+            selected_mask = has_n_mask | any_sn_single_mask
+
+        df_filtered = df_final[selected_mask].copy()
+
+        filtered_csv = output_path / config.get("filtered_csv", "predictions_filtered.csv")
+        filtered_xlsx = output_path / config.get("filtered_excel", "predictions_filtered.xlsx")
+        df_filtered.to_csv(filtered_csv, index=False)
+        df_filtered.to_excel(filtered_xlsx, index=False)
+
+        for _, row in df_filtered.iterrows():
+            sn = row["SN"]
+            for pos in target_positions:
+                match = df_raw[(df_raw["SN"] == sn) & (df_raw["Position"] == pos)]
+                if not match.empty and match.iloc[0]["Prediction"] not in ["Seg Failed", "No Bbox"]:
+                    src = Path(match.iloc[0]["image_path"])
+                    dst_dir = out_filtered / str(sn)
+                    dst_dir.mkdir(parents=True, exist_ok=True)
+                    import shutil
+                    shutil.copy(src, dst_dir / src.name)
 
     status_text.text("Reports successfully generated!")
     return {
         "full_csv": str(full_csv),
         "full_xlsx": str(full_xlsx),
-        "filtered_csv": str(filtered_csv),
-        "filtered_xlsx": str(filtered_xlsx),
+        "filtered_csv": str(filtered_csv) if paired_cols else "Skipped (No valid pairs)",
+        "filtered_xlsx": str(filtered_xlsx) if paired_cols else "Skipped",
         "filtered_images_folder": str(out_filtered),
     }
 
