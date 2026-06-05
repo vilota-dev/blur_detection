@@ -1,0 +1,20 @@
+name: blur_detection
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+    - streamlit
+    - opencv-python
+    - pillow
+    - pandas
+    - openpyxl
+    - pyyaml
+    - torchvision
+    - torch
+    - numpy
+    - scikit-learn
+    - git+https://github.com/facebookresearch/dinov3.git
+    - git+https://github.com/your-org/sam3.git
