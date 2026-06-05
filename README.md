@@ -36,13 +36,13 @@ blur_detection_repo/
 Because this repository relies on external Meta repositories for the vision models, you **must** clone it with the `--recurse-submodules` flag to fetch SAM3 and DINOv3.
 
 ```bash
-git clone --recurse-submodules <YOUR_REPO_LINK_HERE>
+git clone --recurse-submodules https://github.com/vilota-dev/blur_detection.git
 cd blur_detection_repo
 ```
 *(If you already cloned it without submodules, run: `git submodule update --init --recursive`)*
 
 ### 2. Download Model Weights
-The neural network weights are too large to host on GitHub. You must download them manually and place them inside the `models/` directory.
+The neural network weights are too large to host on GitHub. You must download them manually from [Models Link](https://vilota.sharepoint.com/:f:/r/sites/allcompany/Shared%20Documents/Production/Shiva%20Production/4.QC%20Check/QC%20evidence/For%20Shiva%20V2%20-%20outdoor%20FLC/blur%20detection%20models?csf=1&web=1&e=yGQnSo) and place them inside the `models/` directory.
 
 **Required Files:**
 1. `sam3.pt` (SAM3 Checkpoint)
@@ -122,10 +122,3 @@ Upon completion, the application automatically generates two sets of reports in 
    A strictly filtered list containing *only* the Serial Numbers that require human review based on your YAML thresholds.
 
 **Filtered Images Folder:** The pipeline will automatically create subfolders for every flagged Serial Number and copy the processed RGB crops into them for immediate visual inspection.
-
----
-
-## 🛑 Troubleshooting
-
-* **`CUDA error: no kernel image is available`**: This means your GPU architecture requires a different PyTorch binary. The provided `conda.yaml` is optimized for modern cards (e.g., RTX 50-series/Blackwell via CUDA 12.8). If using an older GPU, you may need to install standard PyTorch 12.1 or 11.8 binaries.
-* **`mat1 and mat2 must have the same dtype`**: SAM3 requires mixed-precision math. Ensure your GPU supports `bfloat16`. If you are running on an older card (pre-Ampere, like an RTX 2080), you must manually edit `blur_detection.py` and change all instances of `torch.bfloat16` to `torch.float16`.
