@@ -1,0 +1,4 @@
+*.txt.gz
+*.pth
+*.pt
+models/

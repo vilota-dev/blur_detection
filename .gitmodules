@@ -1,0 +1,6 @@
+[submodule "dinov3"]
+	path = dinov3
+	url = https://github.com/vilota-dev/dinov3.git
+[submodule "sam3"]
+	path = sam3
+	url = https://github.com/vilota-dev/sam3.git

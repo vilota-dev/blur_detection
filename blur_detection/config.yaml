@@ -1,0 +1,20 @@
+# Configuration for blur_detection app
+default_input: "/home/vilota/566-qa-2/621D/IMG"
+target_size: [200, 200]
+shift_left_pixels: 50
+num_classes: 4
+ok_class_index: 1
+confidence_gate: 0.9
+id_to_label:
+  0: 'f'
+  1: 'o'
+  2: 'sn'
+  3: 'n'
+target_positions: [1,3,5,7,9]
+output_csv: "outputs/consolidated_batch_predictions.csv"
+output_excel: "outputs/consolidated_batch_predictions.xlsx"
+filtered_csv: "outputs/predictions_with_n_or_three_high_conf_sn.csv"
+filtered_excel: "outputs/predictions_with_n_or_three_high_conf_sn.xlsx"
+sn_count_threshold_percent: 40
+sn_count_required: 3
+sn_single_threshold_percent: 45
