@@ -122,3 +122,22 @@ Upon completion, the application automatically generates two sets of reports in 
    A strictly filtered list containing *only* the Serial Numbers that require human review based on your YAML thresholds.
 
 **Filtered Images Folder:** The pipeline will automatically create subfolders for every flagged Serial Number and copy the processed RGB crops into them for immediate visual inspection.
+
+---
+
+## 🧑‍💻 Development & Training
+
+If you wish to modify the pipeline, retrain the classifier on new data, or evaluate results programmatically, refer to these development scripts located within the submodules:
+
+* **SAM3 Image Processor (Cropping & Masking)**
+  Used to generate the training datasets and run standalone predictions.
+  [sam3/building_seg/image_processor_for_dinov3.py](https://github.com/vilota-dev/sam3.git)
+* **DINOv3 Classifier Training**
+  Jupyter notebook for fine-tuning the DINOv3 multi-class head.
+  [dinov3/scripts/dinov3_blur_detection_trainer_v5.ipynb](https://github.com/vilota-dev/dinov3.git)
+* **Standalone Predictor**
+  Command-line script for running DINOv3 predictions outside of Streamlit.
+  [dinov3/scripts/dinov3_blur_detection.py](https://github.com/vilota-dev/dinov3.git)
+* **Result Evaluation**
+  Notebook for merging batch results and checking accuracy against ground truth.
+  [dinov3/scripts/merger_checker.ipynb](https://github.com/vilota-dev/dinov3.git)
