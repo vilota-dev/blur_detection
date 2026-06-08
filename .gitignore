@@ -1,4 +1,8 @@
 *.txt.gz
 *.pth
 *.pt
-models/
+__pycache__/
+venv/
+env/
+.env
+.venv/

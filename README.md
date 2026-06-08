@@ -10,9 +10,13 @@ This tool is wrapped in a user-friendly **Streamlit** interface, allowing users 
 
 ```text
 blur_detection_repo/
-├── blur_detection/
-│   ├── blur_detection.py       # Main Streamlit application script
-│   └── config.yaml             # Pipeline and threshold configuration
+├── blur_detection/             # Main application directory
+│   ├── main.py                 # Streamlit entry point
+│   ├── config.yaml             # Pipeline and threshold configuration
+│   ├── core/                   # Orchestration (pipeline.py) and config loaders
+│   ├── models/                 # ML wrappers (sam3_wrapper.py, dino_classifier.py)
+│   ├── utils/                  # Stateless helpers (image_utils.py, file_utils.py)
+│   └── ui/                     # Streamlit UI Components (batch_view.py, dev_view.py)
 ├── dinov3/                     # Git submodule: Meta DINOv3 backbone
 ├── sam3/                       # Git submodule: Meta SAM3 segmenter
 ├── models/                     # Directory for model weights (Requires manual download)
@@ -42,7 +46,7 @@ cd blur_detection_repo
 *(If you already cloned it without submodules, run: `git submodule update --init --recursive`)*
 
 ### 2. Download Model Weights
-The neural network weights are too large to host on GitHub. You must download them manually from [Models Link](https://vilota.sharepoint.com/:f:/r/sites/allcompany/Shared%20Documents/Production/Shiva%20Production/4.QC%20Check/QC%20evidence/For%20Shiva%20V2%20-%20outdoor%20FLC/blur%20detection%20models?csf=1&web=1&e=yGQnSo) and place them inside the `models/` directory.
+The neural network weights are too large to host on GitHub. You must download them manually from [Models Link](https://vilota.sharepoint.com/:f:/r/sites/allcompany/Shared%20Documents/Production/Shiva%20Production/4.QC%20Check/QC%20evidence/For%20Shiva%20V2%20-%20outdoor%20FLC/blur%20detection%20models?csf=1&web=1&e=yGQnSo) and place them inside the `blur_detection/blur_detection/assets/` directory.
 
 **Required Files:**
 1. `sam3.pt` (SAM3 Checkpoint)
@@ -50,7 +54,7 @@ The neural network weights are too large to host on GitHub. You must download th
 3. `dinov3_vith16plus_pretrain_lvd1689m-7c1da9a5.pth` (DINOv3 Backbone)
 4. `dino_classifier_head_multiclass_epoch_58.pth` (Custom Trained Classification Head)
 
-Place all four files directly into the root `models/` folder.
+Place all four files directly into the root `blur_detection/assets/` folder.
 
 ### 3. Build the Conda Environment
 The `conda.yaml` file contains a highly tuned environment specifically built to resolve dependency conflicts between PyTorch nightlies, SAM3's strict NumPy constraints, and OpenCV.
@@ -102,7 +106,7 @@ Ensure your conda environment is active, navigate to the inner application folde
 ```bash
 conda activate blur_detection
 cd blur_detection
-streamlit run blur_detection.py
+streamlit run main.py
 ```
 
 1. A web browser will automatically open (usually at `http://localhost:8501`).
