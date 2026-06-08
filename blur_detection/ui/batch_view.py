@@ -31,9 +31,9 @@ def render_batch_tab():
     st.header("Batch Process")
     
     # UI Inputs (CSV/XLSX paths are handled internally to map to filtered_images)
-    input_dir = st.text_input("Input image folder", value=str(st.session_state.app_config.get("default_input", "/home/vilota/566-qa-2/621D/IMG")))
-    output_dir = st.text_input("Processed Images Output folder", value=str(Path.home() / "566-qa-2" / "processed_output"))
-    filtered_images = st.text_input("Filtered output folder (Images & Datasets)", value=str(Path.home() / "566-qa-2" / "filtered_images"))
+    input_dir = st.text_input("Input image folder", value=str(st.session_state.app_config.get("default_input", "/home/vilota/566-qa-2/619D/IMG")))
+    output_dir = st.text_input("Processed Images Output folder", value=str(Path.home() / "566-qa-2" / "619D" / "processed_output"))
+    filtered_images = st.text_input("Filtered output folder (Images & Datasets)", value=str(Path.home() / "566-qa-2" / "619D" / "filtered_images"))
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     st.write(f"Using device: **{device}**")
@@ -58,8 +58,38 @@ def render_batch_tab():
                 input_dir, output_dir, filtered_images, 
                 st.session_state.app_config, device, segmenter, dino_model
             )
+            
             st.success("Batch Processing Complete!")
+            
+            # --- Result Analysis Summary ---
+            st.write("### Result Analysis")
+            total = results.get("total_units", 0)
+            filtered = results.get("units_flagged_for_review", 0)
+            percentage = (filtered / total * 100) if total > 0 else 0.0
+            process_time = results.get("process_time_seconds", 0)
+            avg_time = results.get("avg_time_per_image_seconds", 0)
+
+            mins, secs = divmod(process_time, 60)
+            time_str = f"{int(mins)}m {secs:.1f}s" if mins > 0 else f"{process_time:.2f}s"
+
+            c1, c2, c3, c4, c5 = st.columns(5)
+            with c1:
+                st.metric("Total Units (SNs)", total)
+            with c2:
+                st.metric("Filtered Units (Flagged)", filtered)
+            with c3:
+                st.metric("Filtered Percentage", f"{percentage:.2f}%")
+            with c4:
+                st.metric("Processing Time", time_str)
+            with c5:
+                st.metric("Avg Time/Image", f"{avg_time:.2f}s")
+            
+            st.divider()
+            # -----------------------------------
+            
             st.write("**Files saved:**")
-            st.json(results)
+            # Hide the raw count variables from the JSON output for cleaner UI
+            st.json({k: v for k, v in results.items() if k not in ["total_units", "units_flagged_for_review", "process_time_seconds", "avg_time_per_image_seconds"]})
+            
         except Exception as e:
             st.error(f"An error occurred during processing: {str(e)}")

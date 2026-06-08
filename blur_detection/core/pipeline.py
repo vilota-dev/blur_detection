@@ -9,6 +9,7 @@ from PIL import Image
 import streamlit as st
 import torch
 import torchvision.transforms as T
+import time
 
 from utils.image_utils import (
     directional_crop_and_pad, 
@@ -18,6 +19,8 @@ from utils.image_utils import (
 from utils.file_utils import get_grid_cell_from_name, extract_sn_and_pos
 
 def process_and_predict(input_folder, output_folder, filtered_images_folder, config, device, segmenter, model):
+    start_time = time.time()
+
     input_path = Path(input_folder)
     output_path = Path(output_folder)
     out_filtered = Path(filtered_images_folder)
@@ -160,7 +163,8 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
             else:
                 row[f"pos {pos} predict"] = "Missing"
                 row[f"pos {pos} confidence"] = "N/A"
-        row["Action Required"] = "Review (Flagged for Double Check)" if review else "Pass (Confirmed OK)"
+        row["Action Required"] = "Review (Flagged for Double Check)" if review else "Pass (Confirme"
+        "d OK)"
         consolidated.append(row)
 
     df_final = pd.DataFrame(consolidated)
@@ -215,15 +219,30 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
                 match = df_raw[(df_raw["SN"] == sn) & (df_raw["Position"] == pos)]
                 if not match.empty and match.iloc[0]["Prediction"] not in ["Seg Failed", "No Bbox"]:
                     src = Path(match.iloc[0]["image_path"])
+                    
+                    # --- Target the cropped/processed image from the output folder ---
+                    processed_src = output_path / f"processed_{src.name}"
+                    
                     dst_dir = out_filtered / str(sn)
                     dst_dir.mkdir(parents=True, exist_ok=True)
-                    shutil.copy(src, dst_dir / src.name)
+                    
+                    if processed_src.exists():
+                        # Saving as 'src.name' preserves the clean "1234-1.png" layout inside the SN folder
+                        shutil.copy(processed_src, dst_dir / src.name)
 
     status_text.text("Reports successfully generated!")
+
+    elapsed_time = time.time() - start_time
+    avg_time = elapsed_time / total_images if total_images > 0 else 0
+
     return {
         "full_csv": str(full_csv),
         "full_xlsx": str(full_xlsx),
         "filtered_csv": str(filtered_csv) if paired_cols else "Skipped (No valid pairs)",
         "filtered_xlsx": str(filtered_xlsx) if paired_cols else "Skipped",
         "filtered_images_folder": str(out_filtered),
+        "total_units": len(df_final),
+        "units_flagged_for_review": len(df_filtered) if paired_cols else 0,
+        "process_time_seconds": round(elapsed_time, 2),
+        "avg_time_per_image_seconds": round(avg_time, 2)
     }

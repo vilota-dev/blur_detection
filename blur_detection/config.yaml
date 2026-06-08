@@ -4,7 +4,7 @@
 
 # The default directory path where the raw input images are located.
 # This populates the initial text box in the Streamlit UI.
-default_input: "/home/vilota/566-qa-2/621D/IMG"
+default_input: "/home/vilota/566-qa-2/619D/IMG"
 
 # The final width and height (in pixels) of the cropped image fed into the classifier.
 # WARNING: Do NOT modify this size. The DINOv3 classifier head was explicitly trained 

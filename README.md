@@ -16,7 +16,7 @@ blur_detection_repo/
 │   ├── core/                   # Orchestration (pipeline.py) and config loaders
 │   ├── models/                 # ML wrappers (sam3_wrapper.py, dino_classifier.py)
 │   ├── utils/                  # Stateless helpers (image_utils.py, file_utils.py)
-│   └── ui/                     # Streamlit UI Components (batch_view.py, dev_view.py)
+│   └── ui/                     # Streamlit UI Components (batch_view.py, review_view.py, dev_view.py)
 ├── dinov3/                     # Git submodule: Meta DINOv3 backbone
 ├── sam3/                       # Git submodule: Meta SAM3 segmenter
 ├── models/                     # Directory for model weights (Requires manual download)
