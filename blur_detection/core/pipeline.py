@@ -10,6 +10,7 @@ import streamlit as st
 import torch
 import torchvision.transforms as T
 import time
+import json
 
 from utils.image_utils import (
     directional_crop_and_pad, 
@@ -54,28 +55,49 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
 
     for idx, img_p in enumerate(image_paths):
         status_text.text(f"Processing {idx + 1}/{total_images}: {img_p.name}")
-        sn, position = extract_sn_and_pos(img_p.name)
+        
+        try:
+            sn, position = extract_sn_and_pos(img_p.name)
+        except Exception as e:
+            raw_predictions.append({
+                "SN": "Unknown", "Position": "Unknown", "Prediction": "Error",
+                "Confidence": 0.0, "Action": "Review (Filename identification failed)", 
+                "image_path": str(img_p), "Error Description": f"Filename identification failed: {e}"
+            })
+            continue
 
         if not segmenter.load_image(str(img_p)):
+            raw_predictions.append({
+                "SN": sn, "Position": position, "Prediction": "Error",
+                "Confidence": 0.0, "Action": "Review (Image load failed)", 
+                "image_path": str(img_p), "Error Description": "Image could not be loaded or identified"
+            })
             continue
             
         cell = get_grid_cell_from_name(img_p.name)
-        if not segmenter.select_crop_region(cell):
+        if cell is None or not segmenter.select_crop_region(cell):
+            raw_predictions.append({
+                "SN": sn, "Position": position, "Prediction": "Error",
+                "Confidence": 0.0, "Action": "Review (Crop region selection failed)", 
+                "image_path": str(img_p), "Error Description": "Grid crop region selection failed"
+            })
             continue
 
         result = segmenter.add_text_prompt("building")
         
         if not result or len(result.get("masks", [])) == 0:
             raw_predictions.append({
-                "SN": sn, "Position": position, "Prediction": "Seg Failed",
-                "Confidence": 0.0, "Action": "Review (Segmentation Failed)", "image_path": str(img_p)
+                "SN": sn, "Position": position, "Prediction": "Error",
+                "Confidence": 0.0, "Action": "Review (Segmentation Failed)", 
+                "image_path": str(img_p), "Error Description": "SAM3 segmentation failed to find building masks"
             })
             continue
 
         crop = segmenter.current_crop.copy()
         h_crop, w_crop = crop.shape[:2]
         bboxes = []
-        for mask in result["masks"][:2]:
+        
+        for mask in result["masks"]:
             mask_np = mask[0].cpu().numpy() if hasattr(mask[0], "cpu") else mask[0]
             if mask_np.ndim == 3: mask_np = mask_np[0]
             mask_uint = (mask_np > 0.5).astype(np.uint8)
@@ -85,11 +107,14 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
             x0, y0 = int(xs.min()), int(ys.min())
             x1, y1 = int(xs.max()) + 1, int(ys.max()) + 1
             bboxes.append([x0, y0, x1, y1])
+            if len(bboxes) == 2:
+                break
 
-        if not bboxes:
+        if len(bboxes) < 2:
             raw_predictions.append({
-                "SN": sn, "Position": position, "Prediction": "No Bbox",
-                "Confidence": 0.0, "Action": "Review (No Building Found)", "image_path": str(img_p)
+                "SN": sn, "Position": position, "Prediction": "Error",
+                "Confidence": 0.0, "Action": "Review (Incomplete building detection)", 
+                "image_path": str(img_p), "Error Description": f"SAM3 failed to detect two buildings (found {len(bboxes)})"
             })
             continue
 
@@ -116,18 +141,19 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
         if ok_prob >= config.get("confidence_gate", 0.9):
             final_pred = "o"
             conf = ok_prob
-            action = "Pass (Confirmed OK)"
+            action = "Pass"
         else:
             defect_idxs = [i for i in range(len(probs)) if i != ok_idx]
             defect_probs = probs[defect_idxs]
             max_idx = defect_idxs[int(torch.argmax(defect_probs).item())]
             final_pred = ID_TO_LABEL.get(max_idx, str(max_idx))
             conf = probs[max_idx].item()
-            action = "Review (Flagged for Double Check)"
+            action = "Review"
 
         raw_predictions.append({
             "SN": sn, "Position": position, "Prediction": final_pred,
-            "Confidence": round(conf * 100, 2), "Action": action, "image_path": str(img_p)
+            "Confidence": round(conf * 100, 2), "Action": action, "image_path": str(img_p),
+            "Error Description": ""
         })
 
         out_path = output_path / f"processed_{img_p.name}"
@@ -152,27 +178,38 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
     
     for sn, group in df_raw.groupby("SN"):
         row = {"SN": sn}
-        review = False
+        flagged_for_review = False
+        errors = []
+        
+        for _, rec in group.iterrows():
+            if rec.get("Error Description"):
+                errors.append(f"Pos {rec['Position']}: {rec['Error Description']}")
+
         for pos in target_positions:
             rec = group[group["Position"] == pos]
             if not rec.empty:
                 row[f"pos {pos} predict"] = rec.iloc[0]["Prediction"]
                 row[f"pos {pos} confidence"] = f"{rec.iloc[0]['Confidence']}%"
-                if "Review" in rec.iloc[0]["Action"]:
-                    review = True
+                if rec.iloc[0]["Action"] == "Review" or rec.iloc[0]["Prediction"] == "Error":
+                    flagged_for_review = True
             else:
                 row[f"pos {pos} predict"] = "Missing"
                 row[f"pos {pos} confidence"] = "N/A"
-        row["Action Required"] = "Review (Flagged for Double Check)" if review else "Pass (Confirme"
-        "d OK)"
+                flagged_for_review = True
+                errors.append(f"Position {pos} is missing from the dataset")
+                
+        row["Error Description"] = "; ".join(errors) if errors else "None"
+
+        if row["Error Description"] != "None":
+            row["Status"] = "FLC Required (Error/Warning)"
+        elif flagged_for_review:
+            row["Status"] = "Review (Flagged for Double Check)"
+        else:
+            row["Status"] = "Pass (Program Pass)"
+            
         consolidated.append(row)
 
     df_final = pd.DataFrame(consolidated)
-
-    full_csv = out_filtered / config.get("output_csv", "consolidated_batch_predictions.csv")
-    full_xlsx = out_filtered / config.get("output_excel", "consolidated_batch_predictions.xlsx")
-    df_final.to_csv(full_csv, index=False)
-    df_final.to_excel(full_xlsx, index=False)
 
     paired_cols = [
         (f'pos {pos} predict', f'pos {pos} confidence')
@@ -181,32 +218,44 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
     ]
     
     if paired_cols:
-        pred_frame = pd.DataFrame({pred_col: df_final[pred_col].astype(str).str.strip().str.lower() for pred_col, _ in paired_cols})
-        conf_frame = pd.DataFrame({conf_col: pd.to_numeric(df_final[conf_col].astype(str).str.replace('%', '', regex=False).str.strip(), errors='coerce') for _, conf_col in paired_cols})
+        pred_frame = pd.DataFrame({p_col: df_final[p_col].astype(str).str.strip().str.lower() for p_col, _ in paired_cols})
+        conf_frame = pd.DataFrame({c_col: pd.to_numeric(df_final[c_col].astype(str).str.replace('%', '', regex=False).str.strip(), errors='coerce') for _, c_col in paired_cols})
 
-        has_n_mask = pred_frame.eq('n').any(axis=1)
+        # --- CONFIG.YAML-DRIVEN MASK EVALUATION GATES ---
+        if config.get("filter_on_n", True):
+            has_n_mask = pred_frame.eq('n').any(axis=1)
+        else:
+            has_n_mask = pd.Series(False, index=df_final.index)
 
-        sn_single_thresh = config.get("sn_single_threshold_percent", 45)
-        any_sn_single_mask = pd.DataFrame({
-            pred_col: (pred_frame[pred_col] == 'sn') & (conf_frame[conf_col] >= sn_single_thresh)
-            for pred_col, conf_col in paired_cols
-        }).any(axis=1)
+        if config.get("filter_on_sn_single", True):
+            sn_single_thresh = config.get("sn_single_threshold_percent", 45)
+            any_sn_single_mask = pd.DataFrame({
+                p_col: (pred_frame[p_col] == 'sn') & (conf_frame[c_col] >= sn_single_thresh)
+                for p_col, c_col in paired_cols
+            }).any(axis=1)
+        else:
+            any_sn_single_mask = pd.Series(False, index=df_final.index)
 
         sn_count_thresh = config.get("sn_count_threshold_percent")
         sn_count_req = config.get("sn_count_required")
-        
-        if sn_count_thresh is not None and sn_count_req is not None:
+        if config.get("filter_on_sn_count", True) and sn_count_thresh is not None and sn_count_req is not None:
             sn_mask_count = (
                 pd.DataFrame({
-                    pred_col: (pred_frame[pred_col] == 'sn') & (conf_frame[conf_col] >= sn_count_thresh)
-                    for pred_col, conf_col in paired_cols
+                    p_col: (pred_frame[p_col] == 'sn') & (conf_frame[c_col] >= sn_count_thresh)
+                    for p_col, c_col in paired_cols
                 }).sum(axis=1) >= sn_count_req
             )
-            selected_mask = has_n_mask | any_sn_single_mask | sn_mask_count
         else:
-            selected_mask = has_n_mask | any_sn_single_mask
+            sn_mask_count = pd.Series(False, index=df_final.index)
 
-        df_filtered = df_final[selected_mask].copy()
+        has_error_mask = df_final["Status"] == "FLC Required (Error/Warning)"
+        
+        # Combine parameters to update statuses dynamically
+        selected_mask = has_n_mask | any_sn_single_mask | sn_mask_count | has_error_mask
+        df_final.loc[selected_mask & (df_final["Status"] == "Pass (Program Pass)"), "Status"] = "Review (Flagged for Double Check)"
+
+        review_mask = df_final["Status"].isin(["FLC Required (Error/Warning)", "Review (Flagged for Double Check)"])
+        df_filtered = df_final[review_mask].copy()
 
         filtered_csv = out_filtered / config.get("filtered_csv", "predictions_filtered.csv")
         filtered_xlsx = out_filtered / config.get("filtered_excel", "predictions_filtered.xlsx")
@@ -215,25 +264,48 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
 
         for _, row in df_filtered.iterrows():
             sn = row["SN"]
+            dst_dir = out_filtered / str(sn)
+            dst_dir.mkdir(parents=True, exist_ok=True)
+
+            unit_json_data = {
+                "SN": sn,
+                "Status": row["Status"],
+                "Error Description": row.get('Error Description', 'None'),
+                "positions": {}
+            }
+
             for pos in target_positions:
                 match = df_raw[(df_raw["SN"] == sn) & (df_raw["Position"] == pos)]
-                if not match.empty and match.iloc[0]["Prediction"] not in ["Seg Failed", "No Bbox"]:
+                pred_val = row.get(f"pos {pos} predict", "o")
+                conf_val = row.get(f"pos {pos} confidence", "0.0%")
+
+                unit_json_data["positions"][f"pos {pos}"] = {
+                    "model_predict": pred_val,
+                    "model_confidence": conf_val,
+                    "human_annotation": pred_val
+                }
+
+                if not match.empty and match.iloc[0]["Prediction"] not in ["Seg Failed", "No Bbox", "Error"]:
                     src = Path(match.iloc[0]["image_path"])
-                    
-                    # --- Target the cropped/processed image from the output folder ---
                     processed_src = output_path / f"processed_{src.name}"
-                    
-                    dst_dir = out_filtered / str(sn)
-                    dst_dir.mkdir(parents=True, exist_ok=True)
-                    
                     if processed_src.exists():
-                        # Saving as 'src.name' preserves the clean "1234-1.png" layout inside the SN folder
                         shutil.copy(processed_src, dst_dir / src.name)
 
-    status_text.text("Reports successfully generated!")
+            json_file_path = dst_dir / "metadata.json"
+            with open(json_file_path, "w") as jf:
+                json.dump(unit_json_data, jf, indent=4)
 
+    full_csv = out_filtered / config.get("output_csv", "consolidated_batch_predictions.csv")
+    full_xlsx = out_filtered / config.get("output_excel", "consolidated_batch_predictions.xlsx")
+    df_final.to_csv(full_csv, index=False)
+    df_final.to_excel(full_xlsx, index=False)
+
+    status_text.text("Reports successfully generated!")
     elapsed_time = time.time() - start_time
     avg_time = elapsed_time / total_images if total_images > 0 else 0
+
+    flc_err_count = int((df_final["Status"] == "FLC Required (Error/Warning)").sum()) if paired_cols else 0
+    rev_check_count = int((df_final["Status"] == "Review (Flagged for Double Check)").sum()) if paired_cols else 0
 
     return {
         "full_csv": str(full_csv),
@@ -243,6 +315,8 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
         "filtered_images_folder": str(out_filtered),
         "total_units": len(df_final),
         "units_flagged_for_review": len(df_filtered) if paired_cols else 0,
+        "flc_error_warning_count": flc_err_count,
+        "review_double_check_count": rev_check_count,
         "process_time_seconds": round(elapsed_time, 2),
         "avg_time_per_image_seconds": round(avg_time, 2)
     }

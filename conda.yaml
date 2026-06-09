@@ -34,6 +34,7 @@ dependencies:
       - einops
       - pycocotools
       - psutil
+      - streamlit-keyup
       
       # DINOv3 Pip Dependencies
       - scikit-learn-intelex

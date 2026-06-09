@@ -4,7 +4,7 @@
 
 # The default directory path where the raw input images are located.
 # This populates the initial text box in the Streamlit UI.
-default_input: "/home/vilota/566-qa-2/619D/IMG"
+default_input: "/home/vilota/566-qa-2/600D/IMG"
 
 # The final width and height (in pixels) of the cropped image fed into the classifier.
 # WARNING: Do NOT modify this size. The DINOv3 classifier head was explicitly trained 
@@ -68,10 +68,17 @@ filtered_excel: "predictions_filtered.xlsx"
 # the entire Serial Number (SN) is flagged for review.
 sn_single_threshold_percent: 45
 
-# 2. Multiple Count Threshold (Optional):
+# 2. Multiple Count Threshold:
 # If a specific number of positions (sn_count_required) are predicted as 'sn', 
 # AND each of those predictions meets this confidence percentage (sn_count_threshold_percent), 
 # the SN is flagged for review. 
-# (If you delete these two lines, the application will safely ignore them and only use the Single Threshold).
-# sn_count_threshold_percent: 40
-# sn_count_required: 3
+sn_count_threshold_percent: 40
+sn_count_required: 3
+
+# ==========================================
+# Dynamic Pass / Review Feature Toggles
+# ==========================================
+# Set to true or false to fully activate or bypass rules from the batch engine.
+filter_on_n: true
+filter_on_sn_single: true
+filter_on_sn_count: true

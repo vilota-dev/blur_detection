@@ -30,10 +30,9 @@ def load_dino_model(dino_weights, head_path, num_classes, _device):
 def render_batch_tab():
     st.header("Batch Process")
     
-    # UI Inputs (CSV/XLSX paths are handled internally to map to filtered_images)
-    input_dir = st.text_input("Input image folder", value=str(st.session_state.app_config.get("default_input", "/home/vilota/566-qa-2/619D/IMG")))
-    output_dir = st.text_input("Processed Images Output folder", value=str(Path.home() / "566-qa-2" / "619D" / "processed_output"))
-    filtered_images = st.text_input("Filtered output folder (Images & Datasets)", value=str(Path.home() / "566-qa-2" / "619D" / "filtered_images"))
+    input_dir = st.text_input("Input image folder", value=str(st.session_state.app_config.get("default_input", "/home/vilota/566-qa-2/600D/IMG")))
+    output_dir = st.text_input("Processed Images Output folder", value=str(Path.home() / "566-qa-2" / "processed_output" / "600D"))
+    filtered_images = st.text_input("Filtered output folder (Images & Datasets)", value=str(Path.home() / "566-qa-2" / "filtered_images" / "600D"))
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     st.write(f"Using device: **{device}**")
@@ -84,12 +83,26 @@ def render_batch_tab():
             with c5:
                 st.metric("Avg Time/Image", f"{avg_time:.2f}s")
             
+            # --- DETAILED REASON METRICS DISPLAY SHORTCUT ---
+            st.write("#### Flagged Units Breakdown by Reason")
+            flc_err = results.get("flc_error_warning_count", 0)
+            rev_check = results.get("review_double_check_count", 0)
+            
+            col_reason1, col_reason2 = st.columns(2)
+            with col_reason1:
+                st.info(f"⚠️ **FLC Required (Error/Warning):** `{flc_err}` units\n\n*Reason: Pipeline processing failures, missing expected position views, name parsing exceptions, or SAM3 building localization timeouts.*")
+            with col_reason2:
+                st.warning(f"🔍 **Review (Flagged for Double Check):** `{rev_check}` units\n\n*Reason: Successful pipeline processing, but triggered by low model confidence scores or classification defect tags requiring operator validation.*")
+
             st.divider()
             # -----------------------------------
             
             st.write("**Files saved:**")
-            # Hide the raw count variables from the JSON output for cleaner UI
-            st.json({k: v for k, v in results.items() if k not in ["total_units", "units_flagged_for_review", "process_time_seconds", "avg_time_per_image_seconds"]})
+            # Hide raw metadata count hooks from json display output
+            st.json({k: v for k, v in results.items() if k not in [
+                "total_units", "units_flagged_for_review", "process_time_seconds", 
+                "avg_time_per_image_seconds", "flc_error_warning_count", "review_double_check_count"
+            ]})
             
         except Exception as e:
             st.error(f"An error occurred during processing: {str(e)}")
