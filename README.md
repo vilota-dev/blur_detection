@@ -87,6 +87,7 @@ The `blur_detection/config.yaml` file controls the behavior of the crop logic, m
 
 ### Key Parameters:
 * **`default_input`**: The default folder path the Streamlit UI will look at for raw images.
+* **`default_output_root`**: The default root folder path where all organized outputs will be saved.
 * **`target_size`**: The `[width, height]` of the final image fed to the DINO classifier. **Do not change this**, as the custom head was trained on this exact spatial dimension.
 * **`position_shifts`**: Maps grid cell positions (1, 3, 5, 7, 9) to specific `[dx, dy]` coordinate shifts. Allows you to fine-tune where the crop window anchors relative to the segmented building. 
     * *Negative `dx` shifts left, positive `dx` shifts right.*
@@ -118,14 +119,16 @@ streamlit run main.py
 
 ## 📊 Outputs
 
-Upon completion, the application automatically generates two sets of reports in your designated output directory:
+Upon completion, the application automatically builds a clean, standardized data layout inside your designated **Result Output Root Folder**:
 
-1. **Consolidated Reports** (`consolidated_batch_predictions.csv` / `.xlsx`): 
-   Contains the raw predictions, confidence percentages, and recommended actions for *every single image* processed in the batch.
-2. **Filtered Reports** (`predictions_filtered.csv` / `.xlsx`): 
-   A strictly filtered list containing *only* the Serial Numbers that require human review based on your YAML thresholds.
+### 1. Dataset Output Subfolder (`/dataset_output/`)
+* **Consolidated Reports** (`consolidated_batch_predictions.csv` / `.xlsx`): Contains raw predictions, confidence percentages, and recommended actions for *every single image* processed in the batch.
+* **Filtered Reports** (`predictions_filtered.csv` / `.xlsx`): A strictly filtered ledger containing *only* the Serial Numbers that require human review or flagged FLC validation based on your threshold rules.
 
-**Filtered Images Folder:** The pipeline will automatically create subfolders for every flagged Serial Number and copy the processed RGB crops into them for immediate visual inspection.
+### 2. Processed Images Subfolder (`/processed_images/`)
+The pipeline automatically generates isolated subfolders named by each unit's **Serial Number (SN)**. Every unit folder contains:
+* The processed crop files generated from active position configurations.
+* A `metadata.json` document containing the model predictions, confidence levels, and staging tracks for human annotation tools.
 
 ---
 

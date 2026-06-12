@@ -19,18 +19,21 @@ from utils.image_utils import (
 )
 from utils.file_utils import get_grid_cell_from_name, extract_sn_and_pos
 
-def process_and_predict(input_folder, output_folder, filtered_images_folder, config, device, segmenter, model):
+def process_and_predict(input_folder, output_root, config, device, segmenter, model):
     start_time = time.time()
 
     input_path = Path(input_folder)
-    output_path = Path(output_folder)
-    out_filtered = Path(filtered_images_folder)
+    output_root_path = Path(output_root)
+    
+    # Define organized internal directory structure
+    processed_images_dir = output_root_path / "processed_images"
+    dataset_output_dir = output_root_path / "dataset_output"
     
     if not input_path.exists():
         raise FileNotFoundError(f"Input directory does not exist: {input_folder}")
 
-    output_path.mkdir(parents=True, exist_ok=True)
-    out_filtered.mkdir(parents=True, exist_ok=True)
+    processed_images_dir.mkdir(parents=True, exist_ok=True)
+    dataset_output_dir.mkdir(parents=True, exist_ok=True)
 
     dino_transform = T.Compose([
         T.Resize((224, 224), interpolation=T.InterpolationMode.BICUBIC),
@@ -154,8 +157,10 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
             "Error Description": ""
         })
 
-        out_path = output_path / f"processed_{img_p.name}"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
+        # --- SAVING DIRECTLY ENCAPSULATED BY UNIT SERIAL NUMBER FOLDER ---
+        unit_img_dir = processed_images_dir / str(sn)
+        unit_img_dir.mkdir(parents=True, exist_ok=True)
+        out_path = unit_img_dir / img_p.name
         Image.fromarray(cv2.cvtColor(final_image, cv2.COLOR_BGR2RGB)).save(out_path)
 
         del input_tensor, patch_mask, lap, logits, probs
@@ -196,11 +201,10 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
                 
         row["Error Description"] = "; ".join(errors) if errors else "None"
 
-        # Determine structural integrity first (Pipeline breaking vs Evaluation tracking)
         if row["Error Description"] != "None" or has_missing_position:
             row["Status"] = "FLC Required (Error/Warning)"
         else:
-            row["Status"] = "Pass (Program Pass)"  # Default staging state before config gate evaluation
+            row["Status"] = "Pass (Program Pass)"
             
         consolidated.append(row)
 
@@ -216,13 +220,11 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
         pred_frame = pd.DataFrame({p_col: df_final[p_col].astype(str).str.strip().str.lower() for p_col, _ in paired_cols})
         conf_frame = pd.DataFrame({c_col: pd.to_numeric(df_final[c_col].astype(str).str.replace('%', '', regex=False).str.strip(), errors='coerce') for _, c_col in paired_cols})
 
-        # Gate 1: Check for unconditional 'n' (Noisy) failures
         if config.get("filter_on_n", True):
             has_n_mask = pred_frame.eq('n').any(axis=1)
         else:
             has_n_mask = pd.Series(False, index=df_final.index)
 
-        # Gate 2: Check single-position 'sn' threshold limit
         if config.get("filter_on_sn_single", True):
             sn_single_thresh = config.get("sn_single_threshold_percent", 45)
             any_sn_single_mask = pd.DataFrame({
@@ -232,7 +234,6 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
         else:
             any_sn_single_mask = pd.Series(False, index=df_final.index)
 
-        # Gate 3: Check multiple positions 'sn' cumulative count conditions
         sn_count_thresh = config.get("sn_count_threshold_percent")
         sn_count_req = config.get("sn_count_required")
         if config.get("filter_on_sn_count", True) and sn_count_thresh is not None and sn_count_req is not None:
@@ -245,25 +246,22 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
         else:
             sn_mask_count = pd.Series(False, index=df_final.index)
 
-        # Combine all config evaluation criteria masks
         trigger_review_mask = has_n_mask | any_sn_single_mask | sn_mask_count
-        
-        # Apply strict evaluation filtering change over the program pass states
         df_final.loc[trigger_review_mask & (df_final["Status"] == "Pass (Program Pass)"), "Status"] = "Review (Flagged for Double Check)"
 
-        # Recompile filtered outputs based entirely on structural flags or verified defect flags
+        # Recompile filtered data frames based on evaluation or error metrics
         review_mask = df_final["Status"].isin(["FLC Required (Error/Warning)", "Review (Flagged for Double Check)"])
         df_filtered = df_final[review_mask].copy()
 
-        filtered_csv = out_filtered / config.get("filtered_csv", "predictions_filtered.csv")
-        filtered_xlsx = out_filtered / config.get("filtered_excel", "predictions_filtered.xlsx")
+        filtered_csv = dataset_output_dir / config.get("filtered_csv", "predictions_filtered.csv")
+        filtered_xlsx = dataset_output_dir / config.get("filtered_excel", "predictions_filtered.xlsx")
         df_filtered.to_csv(filtered_csv, index=False)
         df_filtered.to_excel(filtered_xlsx, index=False)
 
-        # Output individual serialization JSON and processed folders for Review units
-        for _, row in df_filtered.iterrows():
+        # Build Unit Serial Number Folder structures containing specific metadata JSON files for ALL units
+        for _, row in df_final.iterrows():
             sn = row["SN"]
-            dst_dir = out_filtered / str(sn)
+            dst_dir = processed_images_dir / str(sn)
             dst_dir.mkdir(parents=True, exist_ok=True)
 
             unit_json_data = {
@@ -274,7 +272,6 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
             }
 
             for pos in target_positions:
-                match = df_raw[(df_raw["SN"] == sn) & (df_raw["Position"] == pos)]
                 pred_val = row.get(f"pos {pos} predict", "o")
                 conf_val = row.get(f"pos {pos} confidence", "0.0%")
 
@@ -284,18 +281,12 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
                     "human_annotation": pred_val
                 }
 
-                if not match.empty and match.iloc[0]["Prediction"] not in ["Error"]:
-                    src = Path(match.iloc[0]["image_path"])
-                    processed_src = output_path / f"processed_{src.name}"
-                    if processed_src.exists():
-                        shutil.copy(processed_src, dst_dir / src.name)
-
             json_file_path = dst_dir / "metadata.json"
             with open(json_file_path, "w") as jf:
                 json.dump(unit_json_data, jf, indent=4)
 
-    full_csv = out_filtered / config.get("output_csv", "consolidated_batch_predictions.csv")
-    full_xlsx = out_filtered / config.get("output_excel", "consolidated_batch_predictions.xlsx")
+    full_csv = dataset_output_dir / config.get("output_csv", "consolidated_batch_predictions.csv")
+    full_xlsx = dataset_output_dir / config.get("output_excel", "consolidated_batch_predictions.xlsx")
     df_final.to_csv(full_csv, index=False)
     df_final.to_excel(full_xlsx, index=False)
 
@@ -311,7 +302,7 @@ def process_and_predict(input_folder, output_folder, filtered_images_folder, con
         "full_xlsx": str(full_xlsx),
         "filtered_csv": str(filtered_csv) if paired_cols else "Skipped (No valid pairs)",
         "filtered_xlsx": str(filtered_xlsx) if paired_cols else "Skipped",
-        "filtered_images_folder": str(out_filtered),
+        "processed_images_folder": str(processed_images_dir),
         "total_units": len(df_final),
         "units_flagged_for_review": len(df_filtered) if paired_cols else 0,
         "flc_error_warning_count": flc_err_count,
