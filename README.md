@@ -37,7 +37,6 @@ blur_detection_repo/
 ## 🛠️ Setup Instructions
 
 ### 1. Clone the Repository
-Because this repository relies on external Meta repositories for the vision models, you **must** clone it with the `--recurse-submodules` flag to fetch SAM3 and DINOv3.
 
 ```bash
 git clone --recurse-submodules https://github.com/vilota-dev/blur_detection.git
@@ -56,15 +55,13 @@ The neural network weights are too large to host on GitHub. You must download th
 
 Place all four files directly into the root `blur_detection/assets/` folder.
 
-### 3. Build the Conda Environment
-The `conda.yaml` file contains a highly tuned environment specifically built to resolve dependency conflicts between PyTorch nightlies, SAM3's strict NumPy constraints, and OpenCV.
-
+### 3. Build and Start
 ```bash
-# Create the environment
-conda env create -f conda.yaml
+# Setup the environment
+chmod +x setup.sh && ./setup.sh
 
-# Activate the environment
-conda activate blur_detection
+# Start the streamlit web ui
+chmod +x start_app.sh && ./start_app.sh
 ```
 
 ---
