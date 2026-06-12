@@ -1,0 +1,11 @@
+# .dockerignore
+.git
+.github
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.vscode
+.ipynb_checkpoints
+blur_detection/assets/*
