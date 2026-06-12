@@ -3,6 +3,7 @@ import pandas as pd
 from pathlib import Path
 from PIL import Image
 import json
+import streamlit.components.v1 as components
 
 LANG_REVIEW = {
     "EN": {
@@ -104,10 +105,11 @@ def render_review_tab():
             left: 50vw !important;
             transform: translate(-50%, -50%) !important; 
             width: 80vw !important;      
-            height: 80vh !important;
+            height: 85vh !important;
             max-width: 80vw !important;
-            max-height: 80vh !important;
-            object-fit: contain !important; 
+            max-height: 85vh !important;
+            object-fit: contain !important;
+            object-position: center center !important;
             margin: 0px !important;
             z-index: 999999 !important; 
             box-shadow: 0px 0px 150px rgba(0, 0, 0, 0.95) !important; 
@@ -133,14 +135,33 @@ def render_review_tab():
         </style>
     """, unsafe_allow_html=True)
 
+    # --- KEYBOARD SHORTCUTS INJECTION Core ---
+    # Captures physical Left/Right arrow keystrokes inside the parent document context space
+    components.html(f"""
+        <script>
+        const doc = window.parent.document;
+        doc.addEventListener('keydown', function(e) {{
+            if (e.key === 'ArrowLeft') {{
+                // Find and trigger the previous button
+                const buttons = Array.from(doc.querySelectorAll('button'));
+                const prevBtn = buttons.find(el => el.innerText.includes("{ln['prev']}"));
+                if (prevBtn) prevBtn.click();
+            }} else if (e.key === 'ArrowRight') {{
+                // Find and trigger the next button
+                const buttons = Array.from(doc.querySelectorAll('button'));
+                const nextBtn = buttons.find(el => el.innerText.includes("{ln['next']}"));
+                if (nextBtn) nextBtn.click();
+            }}
+        }});
+        </script>
+    """, height=0)
+
     # --- DYNAMIC TARGET RESOLUTION ROUTINES ---
-    # Fetch unified default positions computed directly from the app config session modifications
     output_root_val = st.session_state.app_config.get("default_output_root", "")
     
     fallback_csv = str(Path(output_root_val) / "dataset_output" / "predictions_filtered.csv") if output_root_val else ""
     fallback_folder = str(Path(output_root_val) / "processed_images") if output_root_val else ""
 
-    # Map inputs to use tracking session variables as top priorities, cascading to fallbacks if empty
     default_review_csv = st.session_state.get("review_csv_path", fallback_csv)
     default_review_img = st.session_state.get("review_img_folder", fallback_folder)
 
@@ -159,7 +180,6 @@ def render_review_tab():
                 del st.session_state.live_statuses
             st.rerun()
 
-    # Retain mutations in the active context session
     st.session_state["review_csv_path"] = csv_path
     st.session_state["review_img_folder"] = img_folder
 
@@ -231,9 +251,7 @@ def render_review_tab():
     has_pipeline_error = error_desc != "" and error_desc.lower() != "none"
     positions = [1, 3, 5, 7, 9]
 
-    # --- Criteria-Based Logic Evaluation Engine ---
     def evaluate_flc_rules():
-        """Evaluates active position arrays and determines logic status metrics."""
         labels = [st.session_state.annotations[current_sn][f'pos {p}'] for p in positions]
         if labels.count('n') >= 1 or labels.count('sn') >= 3:
             return "Yes"
@@ -266,26 +284,21 @@ def render_review_tab():
                 p_data['touched'] = True
 
         st.session_state.annotations[current_sn] = p_data
-        
-        if not p_data['touched']:
-            if has_pipeline_error or "FLC Required" in st.session_state.live_statuses.get(current_sn, ""):
-                st.session_state.annotations[current_sn]['need_flc'] = "Yes"
-            else:
-                st.session_state.annotations[current_sn]['need_flc'] = "No"
-        else:
-            st.session_state.annotations[current_sn]['need_flc'] = evaluate_flc_rules()
+        st.session_state.annotations[current_sn]['need_flc'] = evaluate_flc_rules()
 
-    # --- LOGIC RUNTIME ENGINE SYNCHRONIZATION ---
     current_flc = st.session_state.annotations[current_sn]['need_flc']
-    if not st.session_state.annotations[current_sn]['touched']:
-        live_action_status = "FLC Required (Error/Warning)" if has_pipeline_error else st.session_state.live_statuses.get(current_sn, "Review (Flagged for Double Check)")
-    else:
-        live_action_status = "FLC Required (Human Reviewed)" if current_flc == "Yes" else "Pass (Human Reviewed)"
+    live_action_status = st.session_state.live_statuses.get(current_sn, "Review (Flagged for Double Check)")
 
-    def auto_save_and_compile_master():
-        st.session_state.live_statuses[current_sn] = live_action_status
+    def auto_save_and_compile_master(commit_as_human_reviewed=False):
+        status_to_write = live_action_status
+        
+        if commit_as_human_reviewed:
+            final_flc = evaluate_flc_rules()
+            status_to_write = "FLC Required (Human Reviewed)" if final_flc == "Yes" else "Pass (Human Reviewed)"
+            st.session_state.live_statuses[current_sn] = status_to_write
+
         unit_folder.mkdir(parents=True, exist_ok=True)
-        updated_json_payload = {"SN": current_sn, "Status": live_action_status, "Error Description": error_desc, "positions": {}}
+        updated_json_payload = {"SN": current_sn, "Status": status_to_write, "Error Description": error_desc, "positions": {}}
         for p in positions:
             updated_json_payload["positions"][f"pos {p}"] = {
                 "model_predict": str(current_row.get(f'pos {p} predict', 'o')).lower(),
@@ -344,29 +357,26 @@ def render_review_tab():
         with f_col1:
             if st.button(ln["flc_y"], key=f"flc_y_{location_key}_{current_sn}", type="primary" if current_flc == "Yes" else "secondary", width='stretch'):
                 st.session_state.annotations[current_sn]['need_flc'] = "Yes"
-                st.session_state.annotations[current_sn]['touched'] = True
                 st.session_state.annotations[current_sn]['flc_manually_overridden'] = True
-                auto_save_and_compile_master()
+                auto_save_and_compile_master(commit_as_human_reviewed=False)
                 st.rerun()
         with f_col2:
             if st.button(ln["flc_n"], key=f"flc_n_{location_key}_{current_sn}", type="primary" if current_flc == "No" else "secondary", width='stretch'):
                 st.session_state.annotations[current_sn]['need_flc'] = "No"
-                st.session_state.annotations[current_sn]['touched'] = True
                 st.session_state.annotations[current_sn]['flc_manually_overridden'] = True
-                auto_save_and_compile_master()
+                auto_save_and_compile_master(commit_as_human_reviewed=False)
                 st.rerun()
 
         nav_col1, nav_col2, _ = st.columns([1.5, 1.5, 7])
         with nav_col1:
             if st.button(ln["prev"], key=f"nav_prev_{location_key}", width='stretch') and st.session_state.review_idx > 0:
-                st.session_state.annotations[current_sn]['touched'] = True
-                auto_save_and_compile_master()
+                auto_save_and_compile_master(commit_as_human_reviewed=False)
                 st.session_state.review_idx -= 1
                 st.rerun()
         with nav_col2:
             if st.button(ln["next"], key=f"nav_next_{location_key}", width='stretch') and st.session_state.review_idx < len(df_filtered_view) - 1:
                 st.session_state.annotations[current_sn]['touched'] = True
-                auto_save_and_compile_master()
+                auto_save_and_compile_master(commit_as_human_reviewed=True)
                 st.session_state.review_idx += 1
                 st.rerun()
                 
@@ -377,12 +387,11 @@ def render_review_tab():
     grid_layout = [[1, None, 3], [None, 5, None], [7, None, 9]]
     st.subheader(ln["grid_title"])
     
-    for row in grid_layout:
+    for row_idx, row in enumerate(grid_layout):
         cols = st.columns(3)
         for col_idx, pos in enumerate(row):
             with cols[col_idx]:
                 if pos is not None:
-                    # Perform image file glob checks in the standardized folder setup structure
                     img_files = (list(unit_folder.glob(f"{current_sn}-{pos}.*")) + 
                                  list(unit_folder.glob(f"processed_{current_sn}-{pos}.*")) +
                                  list(unit_folder.glob(f"*{current_sn}-{pos}.*")))
@@ -396,12 +405,11 @@ def render_review_tab():
                         for cls_label in classes:
                             if st.button(cls_label.upper(), key=f"lbl_{current_sn}_{pos}_{cls_label}", type="primary" if (current_selection == cls_label) else "secondary", width='stretch'):
                                 st.session_state.annotations[current_sn][f'pos {pos}'] = cls_label
-                                st.session_state.annotations[current_sn]['touched'] = True
-                                
                                 st.session_state.annotations[current_sn]['flc_manually_overridden'] = False
                                 st.session_state.annotations[current_sn]['need_flc'] = evaluate_flc_rules()
                                 
-                                auto_save_and_compile_master(); st.rerun()
+                                auto_save_and_compile_master(commit_as_human_reviewed=False)
+                                st.rerun()
                         st.markdown('</div>', unsafe_allow_html=True)
                         
                     with sub_c2:
@@ -420,9 +428,43 @@ def render_review_tab():
                         else: 
                             st.error(ln["missing_img"])
                 else:
-                    st.write("")
+                    # Target the specific empty cell between Pos 3 and Pos 9
+                    if row_idx == 1 and col_idx == 2:
+                        current_lang = st.session_state.get("lang", "EN")
+                        
+                        if current_lang == "ZH":
+                            guide_html = """
+                            <div style="display: flex; align-items: center; justify-content: center; height: 100%; min-height: 22vh;">
+                                <div style="border: 1px dashed rgba(128,128,128,0.3); padding: 14px; border-radius: 6px; background-color: rgba(128,128,128,0.05); font-size: 0.85rem; line-height: 1.5; width: 100%;">
+                                    <strong style="font-size: 0.9rem; color: #ffaa00;">💡 操作指南</strong><br>
+                                    • <strong>图像审查：</strong> 鼠标悬停缩略图可放大查看 AI 预测结果。<br>
+                                    • <strong>人工标注：</strong> 点击 <code>O</code>、<code>F</code>、<code>SN</code> 或 <code>N</code> 可覆盖原有类别。<br>
+                                    • <strong>自动逻辑：</strong> 若 ≥1 个位置为 <code>N</code> 或 ≥3 个位置为 <code>SN</code>，自动触发 FLC。<br>
+                                    • <strong>快捷键：</strong> 按键盘 <code>←</code> 或 <code>→</code> 方向键可自动保存并切换单元。
+                                </div>
+                            </div>
+                            """
+                        else:
+                            guide_html = """
+                            <div style="display: flex; align-items: center; justify-content: center; height: 100%; min-height: 22vh;">
+                                <div style="border: 1px dashed rgba(128,128,128,0.3); padding: 14px; border-radius: 6px; background-color: rgba(128,128,128,0.05); font-size: 0.85rem; line-height: 1.5; width: 100%;">
+                                    <strong style="font-size: 0.9rem; color: #ffaa00;">💡 Quick Guide</strong><br>
+                                    • <strong>Review:</strong> Hover over thumbnails to zoom and review AI predictions.<br>
+                                    • <strong>Annotate:</strong> Click <code>O</code>, <code>F</code>, <code>SN</code>, or <code>N</code> to override any class.<br>
+                                    • <strong>Auto-FLC:</strong> Triggered if ≥1 position is <code>N</code> or ≥3 positions are <code>SN</code>.<br>
+                                    • <strong>Hotkeys:</strong> Press <code>←</code> or <code>→</code> arrow keys to auto-save & switch units.
+                                </div>
+                            </div>
+                            """
+                        st.markdown(guide_html, unsafe_allow_html=True)
+                    else:
+                        st.write("")
 
     st.divider()
     render_control_deck(location_key="bottom")
     st.divider()
     st.caption(f"{ln['sys_log']} `{Path(img_folder) / out_name}`")
+
+
+
+

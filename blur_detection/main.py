@@ -13,14 +13,12 @@ from ui.review_view import render_review_tab
 LANG_DICT = {
     "EN": {
         "title": "Blur Detection Batch Processor",
-        "subtitle": "Combine SAM3 segmentation + DINOv3-based classifier for batch predictions",
         "tab_batch": "Batch Process",
         "tab_review": "Review & Annotate",
         "tab_dev": "Config & Development"
     },
     "ZH": {
         "title": "模糊检测批处理器",
-        "subtitle": "结合 SAM3 分割 + 基于 DINOv3 的分类器进行批量预测",
         "tab_batch": "批量处理",
         "tab_review": "人工审查与标注",
         "tab_dev": "配置与开发调试"
@@ -42,7 +40,6 @@ def main():
     
     with col_title:
         st.title(ln["title"])
-    st.markdown(ln["subtitle"])
 
     # Initialize configuration in session state so edits persist across interactions
     if 'app_config' not in st.session_state:
