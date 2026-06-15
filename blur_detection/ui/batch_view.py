@@ -84,8 +84,8 @@ def render_batch_tab():
     app_cfg = st.session_state.app_config
     
     # Resolve default baseline paths from standard configuration metrics
-    default_in = app_cfg.get("default_input", "/home/vilota/566-qa-2/600D/IMG")
-    default_out_root = app_cfg.get("default_output_root", "/home/vilota/566-qa-2/output_results")
+    default_in = app_cfg.get("default_input", "/data/input")
+    default_out_root = app_cfg.get("default_output_root", "/data/output")
     
     st.header(ln["header"])
     st.info(ln["info"])

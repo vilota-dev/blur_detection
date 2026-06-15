@@ -32,13 +32,15 @@ ENV PATH=$CONDA_DIR/bin:$PATH
 # ==========================================
 # 3. Setup Project Directory
 # ==========================================
-WORKDIR /workspace/blur_detection_repo
+WORKDIR /workspace/blur_detection
 
 # Copy ONLY the dependency file first to take advantage of Docker layer caching
 COPY conda.yaml .
 
-# Build the conda environment and clean up cache to minimize image size
-RUN conda env create -f conda.yaml --yes && \
+# Accept Anaconda Terms of Service non-interactively and build the environment
+RUN conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main && \
+    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r && \
+    conda env create -f conda.yaml --yes && \
     conda clean -afy
 
 # ==========================================
@@ -48,6 +50,7 @@ RUN conda env create -f conda.yaml --yes && \
 COPY . .
 
 # Ensure scripts have execution permissions
+ENV PYTHONPATH=/workspace/blur_detection:/workspace/blur_detection/blur_detection:/workspace/blur_detection/sam3:/workspace/blur_detection/dinov3
 RUN chmod +x setup.sh start_app.sh
 
 # ==========================================

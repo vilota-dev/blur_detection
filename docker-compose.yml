@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  blur_pipeline:
+    image: blur-detection-app
+    container_name: blur_processor
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8501:8501"
+    volumes:
+      - "./blur_detection/assets:/workspace/blur_detection/blur_detection/assets"
+      - "/mnt/wsl/external_d/600D/IMG:/data/input"
+      - "/mnt/wsl/external_d/pipeline_outputs/600D:/data/output"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped

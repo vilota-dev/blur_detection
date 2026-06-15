@@ -9,7 +9,7 @@ This tool is wrapped in a user-friendly **Streamlit** interface, allowing users 
 ## 📂 Repository Structure
 
 ```text
-blur_detection_repo/
+blur_detection/
 ├── blur_detection/             # Main application directory
 │   ├── main.py                 # Streamlit entry point
 │   ├── config.yaml             # Pipeline and threshold configuration
@@ -40,7 +40,7 @@ blur_detection_repo/
 
 ```bash
 git clone --recurse-submodules https://github.com/vilota-dev/blur_detection.git
-cd blur_detection_repo
+cd blur_detection
 ```
 *(If you already cloned it without submodules, run: `git submodule update --init --recursive`)*
 
