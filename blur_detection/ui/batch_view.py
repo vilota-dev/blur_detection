@@ -101,7 +101,7 @@ def render_batch_tab():
         st.session_state.app_config = app_cfg
 
         # Direct cross-tab tracking adjustments targeting Processed and Dataset boundaries
-        st.session_state["review_csv_path"] = str(Path(output_root_dir) / "dataset_output" / "predictions_filtered.csv")
+        st.session_state["review_csv_path"] = str(Path(output_root_dir) / "dataset_output" / "consolidated_batch_predictions.csv")
         st.session_state["review_img_folder"] = str(Path(output_root_dir) / "processed_images")
 
         # Overwrite physical disk configuration state variables instantly

@@ -159,7 +159,7 @@ def render_review_tab():
     # --- DYNAMIC TARGET RESOLUTION ROUTINES ---
     output_root_val = st.session_state.app_config.get("default_output_root", "")
     
-    fallback_csv = str(Path(output_root_val) / "dataset_output" / "predictions_filtered.csv") if output_root_val else ""
+    fallback_csv = str(Path(output_root_val) / "dataset_output" / "consolidated_batch_predictions.csv") if output_root_val else ""
     fallback_folder = str(Path(output_root_val) / "processed_images") if output_root_val else ""
 
     default_review_csv = st.session_state.get("review_csv_path", fallback_csv)
@@ -183,7 +183,8 @@ def render_review_tab():
     st.session_state["review_csv_path"] = csv_path
     st.session_state["review_img_folder"] = img_folder
 
-    out_name = "human_annotated_predictions.csv"
+    base_dir = Path(csv_path).parent
+    out_csv_path = base_dir / "human_annotated_predictions.csv"
 
     if not csv_path or not Path(csv_path).exists():
         st.warning(ln["valid_csv"])
@@ -297,6 +298,7 @@ def render_review_tab():
             status_to_write = "FLC Required (Human Reviewed)" if final_flc == "Yes" else "Pass (Human Reviewed)"
             st.session_state.live_statuses[current_sn] = status_to_write
 
+        # 1. Update the local JSON for the current active unit first
         unit_folder.mkdir(parents=True, exist_ok=True)
         updated_json_payload = {"SN": current_sn, "Status": status_to_write, "Error Description": error_desc, "positions": {}}
         for p in positions:
@@ -307,6 +309,7 @@ def render_review_tab():
             }
         with open(json_path, "w") as jf: json.dump(updated_json_payload, jf, indent=4)
 
+        # 2. Re-compile the global spreadsheet master ledger
         annotated_rows = []
         for index, row in df_master.iterrows():
             sn_loop = str(row['SN'])
@@ -314,23 +317,30 @@ def render_review_tab():
             loop_error = str(row.get('Error Description', 'None')).strip()
             loop_has_error = loop_error != "" and loop_error.lower() != "none"
             
-            if loop_json_path.exists():
+            # FIX: If the loop hits the CURRENT active unit, use session state data directly!
+            if sn_loop == current_sn:
+                cached = st.session_state.annotations[current_sn]
+                anno = {f'pos {p}': cached[f'pos {p}'] for p in positions}
+                action_status = status_to_write
+            
+            # For all other units, read their stable records normally
+            elif loop_json_path.exists():
                 try:
                     with open(loop_json_path, "r") as jf: d = json.load(jf)
                     anno = {f'pos {p}': d["positions"][f"pos {p}"]["human_annotation"] for p in positions}
                     action_status = d.get("Status", "Review (Flagged for Double Check)")
                 except Exception:
-                    cached = st.session_state.annotations.get(sn_loop, st.session_state.annotations[current_sn])
+                    cached = st.session_state.annotations.get(sn_loop, {"pos 1": "o", "pos 3": "o", "pos 5": "o", "pos 7": "o", "pos 9": "o"})
                     anno = {f'pos {p}': cached.get(f'pos {p}', 'o') for p in positions}
                     action_status = "FLC Required (Error/Warning)" if loop_has_error else "Review (Flagged for Double Check)"
             else:
                 if sn_loop in st.session_state.annotations:
                     cached = st.session_state.annotations[sn_loop]
                     anno = {f'pos {p}': cached.get(f'pos {p}', 'o') for p in positions}
-                    if not cached['touched']: 
+                    if not cached.get('touched', False): 
                         action_status = "FLC Required (Error/Warning)" if loop_has_error else st.session_state.live_statuses.get(sn_loop, row.get("Status", "Review (Flagged for Double Check)"))
                     else: 
-                        action_status = "FLC Required (Human Reviewed)" if cached['need_flc'] == "Yes" else "Pass (Human Reviewed)"
+                        action_status = "FLC Required (Human Reviewed)" if cached.get('need_flc') == "Yes" else "Pass (Human Reviewed)"
                 else:
                     anno = {'pos 1': 'o', 'pos 3': 'o', 'pos 5': 'o', 'pos 7': 'o', 'pos 9': 'o'}
                     action_status = "FLC Required (Error/Warning)" if loop_has_error else st.session_state.live_statuses.get(sn_loop, row.get("Status", "Pass (Program Pass)"))
@@ -347,7 +357,9 @@ def render_review_tab():
                 "pos 9 predict": row.get('pos 9 predict', ''), "pos 9 confidence": row.get('pos 9 confidence', ''),
                 "Status": action_status, "number of correct \"o\"": correct_o, "number of incorrect \"o\"": incorrect_o
             })
-        if annotated_rows: pd.DataFrame(annotated_rows).to_csv(Path(img_folder) / out_name, index=False)
+            
+        if annotated_rows: 
+            pd.DataFrame(annotated_rows).to_csv(out_csv_path, index=False)
 
     def render_control_deck(location_key):
         st.write(f"### {ln['record']}: {st.session_state.review_idx + 1} / {len(df_filtered_view)}")
@@ -358,12 +370,14 @@ def render_review_tab():
             if st.button(ln["flc_y"], key=f"flc_y_{location_key}_{current_sn}", type="primary" if current_flc == "Yes" else "secondary", width='stretch'):
                 st.session_state.annotations[current_sn]['need_flc'] = "Yes"
                 st.session_state.annotations[current_sn]['flc_manually_overridden'] = True
+                st.session_state.annotations[current_sn]['touched'] = True
                 auto_save_and_compile_master(commit_as_human_reviewed=False)
                 st.rerun()
         with f_col2:
             if st.button(ln["flc_n"], key=f"flc_n_{location_key}_{current_sn}", type="primary" if current_flc == "No" else "secondary", width='stretch'):
                 st.session_state.annotations[current_sn]['need_flc'] = "No"
                 st.session_state.annotations[current_sn]['flc_manually_overridden'] = True
+                st.session_state.annotations[current_sn]['touched'] = True
                 auto_save_and_compile_master(commit_as_human_reviewed=False)
                 st.rerun()
 
@@ -463,8 +477,7 @@ def render_review_tab():
     st.divider()
     render_control_deck(location_key="bottom")
     st.divider()
-    st.caption(f"{ln['sys_log']} `{Path(img_folder) / out_name}`")
-
+    st.caption(f"{ln['sys_log']} `{out_csv_path}`")
 
 
 

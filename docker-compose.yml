@@ -11,8 +11,11 @@ services:
       - "8501:8501"
     volumes:
       - "./blur_detection/assets:/workspace/blur_detection/blur_detection/assets"
-      - "/mnt/wsl/external_d/600D/IMG:/data/input"
-      - "/mnt/wsl/external_d/pipeline_outputs/600D:/data/output"
+      
+      # DYNAMIC TRANSLATION VOLUMES
+      - "${DOCKER_INPUT_PATH}:/data/input"
+      - "${DOCKER_OUTPUT_PATH}:/data/output"
+      
     deploy:
       resources:
         reservations:
