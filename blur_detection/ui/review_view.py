@@ -136,18 +136,15 @@ def render_review_tab():
     """, unsafe_allow_html=True)
 
     # --- KEYBOARD SHORTCUTS INJECTION Core ---
-    # Captures physical Left/Right arrow keystrokes inside the parent document context space
     components.html(f"""
         <script>
         const doc = window.parent.document;
         doc.addEventListener('keydown', function(e) {{
             if (e.key === 'ArrowLeft') {{
-                // Find and trigger the previous button
                 const buttons = Array.from(doc.querySelectorAll('button'));
                 const prevBtn = buttons.find(el => el.innerText.includes("{ln['prev']}"));
                 if (prevBtn) prevBtn.click();
             }} else if (e.key === 'ArrowRight') {{
-                // Find and trigger the next button
                 const buttons = Array.from(doc.querySelectorAll('button'));
                 const nextBtn = buttons.find(el => el.innerText.includes("{ln['next']}"));
                 if (nextBtn) nextBtn.click();
@@ -252,6 +249,7 @@ def render_review_tab():
     has_pipeline_error = error_desc != "" and error_desc.lower() != "none"
     positions = [1, 3, 5, 7, 9]
 
+    # --- ALGORITHMIC CRITERIA PLACEHOLDER ---
     def evaluate_flc_rules():
         labels = [st.session_state.annotations[current_sn][f'pos {p}'] for p in positions]
         if labels.count('n') >= 1 or labels.count('sn') >= 3:
@@ -271,6 +269,8 @@ def render_review_tab():
                 saved_status = j_data.get("Status", "")
                 if saved_status in ["FLC Required (Human Reviewed)", "Pass (Human Reviewed)"]:
                     p_data['touched'] = True
+                    p_data['flc_manually_overridden'] = True
+                    p_data['need_flc'] = "Yes" if saved_status == "FLC Required (Human Reviewed)" else "No"
             except Exception:
                 json_path.unlink(missing_ok=True)
 
@@ -283,33 +283,42 @@ def render_review_tab():
             initial_status = st.session_state.live_statuses.get(current_sn, "")
             if initial_status in ["FLC Required (Human Reviewed)", "Pass (Human Reviewed)"]:
                 p_data['touched'] = True
+                p_data['flc_manually_overridden'] = True
+                p_data['need_flc'] = "Yes" if initial_status == "FLC Required (Human Reviewed)" else "No"
 
         st.session_state.annotations[current_sn] = p_data
-        st.session_state.annotations[current_sn]['need_flc'] = evaluate_flc_rules()
+        if not p_data['flc_manually_overridden']:
+            st.session_state.annotations[current_sn]['need_flc'] = evaluate_flc_rules()
 
     current_flc = st.session_state.annotations[current_sn]['need_flc']
     live_action_status = st.session_state.live_statuses.get(current_sn, "Review (Flagged for Double Check)")
 
     def auto_save_and_compile_master(commit_as_human_reviewed=False):
-        status_to_write = live_action_status
+        # Dynamically draw live status from active Session State tracking dictionary
+        status_to_write = st.session_state.live_statuses.get(current_sn, live_action_status)
+        cached_current = st.session_state.annotations[current_sn]
         
         if commit_as_human_reviewed:
-            final_flc = evaluate_flc_rules()
+            # If overridden explicitly by manual action button clicks, completely bypass structural calculation algorithms
+            if cached_current.get('flc_manually_overridden', False):
+                final_flc = cached_current['need_flc']
+            else:
+                final_flc = evaluate_flc_rules()
             status_to_write = "FLC Required (Human Reviewed)" if final_flc == "Yes" else "Pass (Human Reviewed)"
             st.session_state.live_statuses[current_sn] = status_to_write
 
-        # 1. Update the local JSON for the current active unit first
+        # 1. Update the local unit JSON on disk
         unit_folder.mkdir(parents=True, exist_ok=True)
         updated_json_payload = {"SN": current_sn, "Status": status_to_write, "Error Description": error_desc, "positions": {}}
         for p in positions:
             updated_json_payload["positions"][f"pos {p}"] = {
                 "model_predict": str(current_row.get(f'pos {p} predict', 'o')).lower(),
                 "model_confidence": str(current_row.get(f'pos {p} confidence', 'N/A')),
-                "human_annotation": st.session_state.annotations[current_sn][f'pos {p}']
+                "human_annotation": cached_current[f'pos {p}']
             }
         with open(json_path, "w") as jf: json.dump(updated_json_payload, jf, indent=4)
 
-        # 2. Re-compile the global spreadsheet master ledger
+        # 2. Re-compile spreadsheet ledger
         annotated_rows = []
         for index, row in df_master.iterrows():
             sn_loop = str(row['SN'])
@@ -317,13 +326,9 @@ def render_review_tab():
             loop_error = str(row.get('Error Description', 'None')).strip()
             loop_has_error = loop_error != "" and loop_error.lower() != "none"
             
-            # FIX: If the loop hits the CURRENT active unit, use session state data directly!
             if sn_loop == current_sn:
-                cached = st.session_state.annotations[current_sn]
-                anno = {f'pos {p}': cached[f'pos {p}'] for p in positions}
+                anno = {f'pos {p}': cached_current[f'pos {p}'] for p in positions}
                 action_status = status_to_write
-            
-            # For all other units, read their stable records normally
             elif loop_json_path.exists():
                 try:
                     with open(loop_json_path, "r") as jf: d = json.load(jf)
@@ -371,6 +376,7 @@ def render_review_tab():
                 st.session_state.annotations[current_sn]['need_flc'] = "Yes"
                 st.session_state.annotations[current_sn]['flc_manually_overridden'] = True
                 st.session_state.annotations[current_sn]['touched'] = True
+                st.session_state.live_statuses[current_sn] = "FLC Required (Human Reviewed)"
                 auto_save_and_compile_master(commit_as_human_reviewed=False)
                 st.rerun()
         with f_col2:
@@ -378,6 +384,7 @@ def render_review_tab():
                 st.session_state.annotations[current_sn]['need_flc'] = "No"
                 st.session_state.annotations[current_sn]['flc_manually_overridden'] = True
                 st.session_state.annotations[current_sn]['touched'] = True
+                st.session_state.live_statuses[current_sn] = "Pass (Human Reviewed)"
                 auto_save_and_compile_master(commit_as_human_reviewed=False)
                 st.rerun()
 
@@ -442,7 +449,6 @@ def render_review_tab():
                         else: 
                             st.error(ln["missing_img"])
                 else:
-                    # Target the specific empty cell between Pos 3 and Pos 9
                     if row_idx == 1 and col_idx == 2:
                         current_lang = st.session_state.get("lang", "EN")
                         
@@ -478,6 +484,3 @@ def render_review_tab():
     render_control_deck(location_key="bottom")
     st.divider()
     st.caption(f"{ln['sys_log']} `{out_csv_path}`")
-
-
-
