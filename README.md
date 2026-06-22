@@ -34,7 +34,7 @@ blur_detection/
 
 ---
 
-## 🛠️ Setup Instructions
+## 🛠️ Setup Instructions (running in Ubuntu locally)
 
 ### 1. Clone the Repository
 
@@ -63,6 +63,29 @@ chmod +x setup.sh && ./setup.sh
 # Start the streamlit web ui
 chmod +x start_app.sh && ./start_app.sh
 ```
+
+---
+
+## 🐋 Docker Setup & Execution (running in Windows)
+### 1. Prerequisites
+* **All Platforms:** Ensure Docker Desktop or Docker Engine is installed with Compose support.
+* **In Windows:** Open PowerShell as Administrator and run:
+```bash
+wsl --install
+```
+
+### 2. Docker Build
+```bash
+# in blur_detection root directory
+docker build .
+```
+
+### 3. Run and Start
+```bash
+# in blur_detection root directory
+./blur_detection.bat
+```
+Refer to 模糊检测批量处理系统使用手册.pdf for chinese operation guide.
 
 ---
 
@@ -97,7 +120,7 @@ The pipeline automatically flags any Serial Number (SN) containing an `n` (Noisy
 
 ---
 
-## 🚀 How to Run
+## 🚀 How to Run (Running in Ubuntu locally)
 
 Ensure your conda environment is active, navigate to the inner application folder, and launch Streamlit:
 
