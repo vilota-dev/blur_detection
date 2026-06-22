@@ -21,6 +21,7 @@ LANG_REVIEW = {
         "status": "Current Status:",
         "flc_y": "⚠️ Need FLC",
         "flc_n": "✅ Don't Need FLC",
+        "flc_ng": "❌ NG (Fail Directly)",
         "prev": "⬅️ Previous",
         "next": "Next ➡️",
         "grid_title": "🖼️ Interactive Operational Grid",
@@ -42,6 +43,7 @@ LANG_REVIEW = {
         "status": "当前业务状态:",
         "flc_y": "⚠️ 需要 FLC 异常复核",
         "flc_n": "✅ 正常无需 FLC",
+        "flc_ng": "❌ 报废 (直接NG)",
         "prev": "⬅️ 上一页",
         "next": "下一页 ➡️",
         "grid_title": "🖼️ 交互式多视角全景操作网格",
@@ -50,13 +52,14 @@ LANG_REVIEW = {
     }
 }
 
-# --- 统一的中文业务状态定义（与 pipeline.py 完全对齐） ---
+# --- 统一的中文业务状态定义 ---
 STATUS_ZH = {
     "AUTO_PASS": "自动通过 (Pass)",
     "HUMAN_PASS": "人工确认通过 (Pass)",
     "REVIEW": "待人工审查 (Review)",
     "HUMAN_FLC": "人工确认复核 (FLC)",
-    "ERROR_FLC": "异常复核 (FLC)"
+    "ERROR_FLC": "异常复核 (FLC)",
+    "HUMAN_NG": "人工确认报废 (NG)"
 }
 
 # --- 类标签与中文别名映射 ---
@@ -64,7 +67,8 @@ LABEL_DISPLAY = {
     "o": "OK",
     "f": "太远",
     "n": "太近",
-    "sn": "稍近"
+    "sn": "稍近",
+    "ng": "NG"
 }
 
 def render_review_tab():
@@ -74,7 +78,6 @@ def render_review_tab():
     st.header(ln["header"])
     st.info(ln["info"])
 
-    # --- ADVANCED CSS FOR STRETCHED HEIGHTS AND DETACHED VIEWPORT CENTERING ---
     st.markdown("""
         <style>
         div[data-testid="stHorizontalBlock"] {
@@ -152,7 +155,6 @@ def render_review_tab():
         </style>
     """, unsafe_allow_html=True)
 
-    # --- KEYBOARD SHORTCUTS INJECTION Core ---
     components.html(f"""
         <script>
         const doc = window.parent.document;
@@ -170,7 +172,6 @@ def render_review_tab():
         </script>
     """, height=0)
 
-    # --- DYNAMIC TARGET RESOLUTION ROUTINES ---
     output_root_val = st.session_state.app_config.get("default_output_root", "")
     
     fallback_csv = str(Path(output_root_val) / "dataset_output" / "consolidated_batch_predictions.csv") if output_root_val else ""
@@ -179,7 +180,6 @@ def render_review_tab():
     default_review_csv = st.session_state.get("review_csv_path", fallback_csv)
     default_review_img = st.session_state.get("review_img_folder", fallback_folder)
 
-    # --- TOP INPUTS AND REFRESH ROW ---
     col_csv, col_img, col_ref = st.columns([4.5, 4.5, 1])
     with col_csv:
         csv_path = st.text_input(ln["p_csv"], value=default_review_csv)
@@ -188,10 +188,8 @@ def render_review_tab():
     with col_ref:
         st.markdown('<div style="height: 28px;"></div>', unsafe_allow_html=True)
         if st.button(ln["refresh"], width='stretch'):
-            if 'pred_data_cache' in st.session_state:
-                del st.session_state.pred_data_cache
-            if 'live_statuses' in st.session_state:
-                del st.session_state.live_statuses
+            if 'pred_data_cache' in st.session_state: del st.session_state.pred_data_cache
+            if 'live_statuses' in st.session_state: del st.session_state.live_statuses
             st.rerun()
 
     st.session_state["review_csv_path"] = csv_path
@@ -212,7 +210,6 @@ def render_review_tab():
             return
 
     df_master = st.session_state.pred_data_cache
-    base_dir = Path(csv_path).parent
     master_csv_path = base_dir / "consolidated_batch_predictions.csv"
     
     if master_csv_path.exists() and len(df_master) < 5: 
@@ -234,13 +231,13 @@ def render_review_tab():
                 try:
                     with open(json_p, "r") as jf:
                         d = json.load(jf)
-                    # 关键修改：因为要兼容不转中文的 json 原始值，如果读取到英文状态，在这里动态映射为中文展示
                     json_status = d.get("Status", row.get("Status", STATUS_ZH["REVIEW"]))
                     if json_status == "Pass (Program Pass)": json_status = STATUS_ZH["AUTO_PASS"]
                     elif json_status == "Pass (Human Reviewed)": json_status = STATUS_ZH["HUMAN_PASS"]
                     elif json_status == "Review (Flagged for Double Check)": json_status = STATUS_ZH["REVIEW"]
                     elif json_status == "FLC Required (Human Reviewed)": json_status = STATUS_ZH["HUMAN_FLC"]
                     elif json_status == "FLC Required (Error/Warning)": json_status = STATUS_ZH["ERROR_FLC"]
+                    elif json_status == "NG (Human Reviewed)": json_status = STATUS_ZH["HUMAN_NG"]
                     st.session_state.live_statuses[sn] = json_status
                 except:
                     st.session_state.live_statuses[sn] = row.get("Status", STATUS_ZH["REVIEW"])
@@ -249,7 +246,7 @@ def render_review_tab():
 
     all_statuses = sorted(list(set(st.session_state.live_statuses.values()).union({
         STATUS_ZH["AUTO_PASS"], STATUS_ZH["HUMAN_PASS"], STATUS_ZH["REVIEW"], 
-        STATUS_ZH["HUMAN_FLC"], STATUS_ZH["ERROR_FLC"]
+        STATUS_ZH["HUMAN_FLC"], STATUS_ZH["ERROR_FLC"], STATUS_ZH["HUMAN_NG"]
     })))
     
     selected_statuses = st.multiselect(ln["filter_lbl"], options=all_statuses, default=all_statuses, help=ln["filter_help"])
@@ -273,16 +270,18 @@ def render_review_tab():
     has_pipeline_error = error_desc != "" and error_desc.lower() != "none"
     positions = [1, 3, 5, 7, 9]
 
-    # --- ALGORITHMIC CRITERIA PLACEHOLDER ---
+    # --- UPDATED ALGORITHMIC CRITERIA ---
     def evaluate_flc_rules():
         labels = [st.session_state.annotations[current_sn][f'pos {p}'] for p in positions]
+        if labels.count('ng') >= 1:
+            return "Yes"
         if labels.count('n') >= 1 or labels.count('sn') >= 3:
             return "Yes"
         return "No"
 
     # --- SYNCHRONIZED INITIALIZATION ---
     if current_sn not in st.session_state.annotations:
-        p_data = {'need_flc': 'No', 'flc_manually_overridden': False, 'touched': False}
+        p_data = {'need_flc': 'No', 'flc_manually_overridden': False, 'direct_ng': False, 'touched': False}
         
         if json_path.exists():
             try:
@@ -291,28 +290,45 @@ def render_review_tab():
                 for p in positions:
                     p_data[f'pos {p}'] = j_data["positions"].get(f"pos {p}", {}).get("human_annotation", "o")
                 saved_status = j_data.get("Status", "")
-                # 兼容原始英文 JSON 的逻辑判定
-                if saved_status in ["FLC Required (Human Reviewed)", STATUS_ZH["HUMAN_FLC"], "Pass (Human Reviewed)", STATUS_ZH["HUMAN_PASS"]]:
+                if saved_status in ["FLC Required (Human Reviewed)", STATUS_ZH["HUMAN_FLC"], "Pass (Human Reviewed)", STATUS_ZH["HUMAN_PASS"], "NG (Human Reviewed)", STATUS_ZH["HUMAN_NG"]]:
                     p_data['touched'] = True
                     p_data['flc_manually_overridden'] = True
-                    p_data['need_flc'] = "Yes" if saved_status in ["FLC Required (Human Reviewed)", STATUS_ZH["HUMAN_FLC"]] else "No"
+                    if saved_status in ["NG (Human Reviewed)", STATUS_ZH["HUMAN_NG"]]:
+                        p_data['direct_ng'] = True
+                        p_data['need_flc'] = "Yes"
+                    else:
+                        p_data['need_flc'] = "Yes" if saved_status in ["FLC Required (Human Reviewed)", STATUS_ZH["HUMAN_FLC"]] else "No"
             except Exception:
                 json_path.unlink(missing_ok=True)
 
         if f'pos 1' not in p_data:
-            valid_classes = {'o', 'f', 'sn', 'n'}
+            valid_classes = {'o', 'f', 'sn', 'n', 'ng'}
             for p in positions:
                 pred_val = str(current_row.get(f'pos {p} predict', 'o')).lower().strip()
-                p_data[f'pos {p}'] = pred_val if pred_val in valid_classes else 'o'
+                
+                # Dynamically fetch image files to confirm existence during init 
+                img_files_exist = (list(unit_folder.glob(f"{current_sn}-{p}.*")) + 
+                                   list(unit_folder.glob(f"processed_{current_sn}-{p}.*")) +
+                                   list(unit_folder.glob(f"*{current_sn}-{p}.*")))
+                
+                # Flag missing or error as NG automatically
+                if pred_val in ['error', 'missing'] or not img_files_exist:
+                    p_data[f'pos {p}'] = 'ng'
+                else:
+                    p_data[f'pos {p}'] = pred_val if pred_val in valid_classes else 'o'
             
             initial_status = st.session_state.live_statuses.get(current_sn, "")
-            if initial_status in [STATUS_ZH["HUMAN_FLC"], STATUS_ZH["HUMAN_PASS"]]:
+            if initial_status in [STATUS_ZH["HUMAN_FLC"], STATUS_ZH["HUMAN_PASS"], STATUS_ZH["HUMAN_NG"]]:
                 p_data['touched'] = True
                 p_data['flc_manually_overridden'] = True
-                p_data['need_flc'] = "Yes" if initial_status == STATUS_ZH["HUMAN_FLC"] else "No"
+                if initial_status == STATUS_ZH["HUMAN_NG"]:
+                    p_data['direct_ng'] = True
+                    p_data['need_flc'] = "Yes"
+                else:
+                    p_data['need_flc'] = "Yes" if initial_status == STATUS_ZH["HUMAN_FLC"] else "No"
 
         st.session_state.annotations[current_sn] = p_data
-        if not p_data['flc_manually_overridden']:
+        if not p_data['flc_manually_overridden'] and not p_data['direct_ng']:
             st.session_state.annotations[current_sn]['need_flc'] = evaluate_flc_rules()
 
     current_flc = st.session_state.annotations[current_sn]['need_flc']
@@ -323,24 +339,24 @@ def render_review_tab():
         cached_current = st.session_state.annotations[current_sn]
         
         if commit_as_human_reviewed:
-            if cached_current.get('flc_manually_overridden', False):
+            if cached_current.get('direct_ng', False) or status_to_write_csv == STATUS_ZH["HUMAN_NG"]:
+                status_to_write_csv = STATUS_ZH["HUMAN_NG"]
+            elif cached_current.get('flc_manually_overridden', False):
                 final_flc = cached_current['need_flc']
+                status_to_write_csv = STATUS_ZH["HUMAN_FLC"] if final_flc == "Yes" else STATUS_ZH["HUMAN_PASS"]
             else:
                 final_flc = evaluate_flc_rules()
-            status_to_write_csv = STATUS_ZH["HUMAN_FLC"] if final_flc == "Yes" else STATUS_ZH["HUMAN_PASS"]
+                status_to_write_csv = STATUS_ZH["HUMAN_FLC"] if final_flc == "Yes" else STATUS_ZH["HUMAN_PASS"]
             st.session_state.live_statuses[current_sn] = status_to_write_csv
 
-        # ----------------------------------------------------
-        # 1. 保存本地 JSON：严格保持原始英文状态格式 (DONT CHANGE JSON)
-        # ----------------------------------------------------
         status_to_write_json = "Review (Flagged for Double Check)"
         if status_to_write_csv == STATUS_ZH["AUTO_PASS"]: status_to_write_json = "Pass (Program Pass)"
         elif status_to_write_csv == STATUS_ZH["HUMAN_PASS"]: status_to_write_json = "Pass (Human Reviewed)"
         elif status_to_write_csv == STATUS_ZH["REVIEW"]: status_to_write_json = "Review (Flagged for Double Check)"
         elif status_to_write_csv == STATUS_ZH["HUMAN_FLC"]: status_to_write_json = "FLC Required (Human Reviewed)"
         elif status_to_write_csv == STATUS_ZH["ERROR_FLC"]: status_to_write_json = "FLC Required (Error/Warning)"
+        elif status_to_write_csv == STATUS_ZH["HUMAN_NG"]: status_to_write_json = "NG (Human Reviewed)"
 
-        # 1. Update the local unit JSON on disk
         unit_folder.mkdir(parents=True, exist_ok=True)
         updated_json_payload = {"SN": current_sn, "Status": status_to_write_json, "Error Description": error_desc, "positions": {}}
         for p in positions:
@@ -351,9 +367,6 @@ def render_review_tab():
             }
         with open(json_path, "w") as jf: json.dump(updated_json_payload, jf, indent=4)
 
-        # ----------------------------------------------------
-        # 2. 重新编译生成全量人工标注后的 CSV Ledger (写入中文状态)
-        # ----------------------------------------------------
         annotated_rows = []
         for index, row in df_master.iterrows():
             sn_loop = str(row['SN'])
@@ -368,13 +381,13 @@ def render_review_tab():
                 try:
                     with open(loop_json_path, "r") as jf: d = json.load(jf)
                     anno = {f'pos {p}': d["positions"][f"pos {p}"]["human_annotation"] for p in positions}
-                    # 从 JSON 读出英文，转换为中文写入 CSV
                     j_stat = d.get("Status", "Review (Flagged for Double Check)")
                     if j_stat == "Pass (Program Pass)": action_status = STATUS_ZH["AUTO_PASS"]
                     elif j_stat == "Pass (Human Reviewed)": action_status = STATUS_ZH["HUMAN_PASS"]
                     elif j_stat == "Review (Flagged for Double Check)": action_status = STATUS_ZH["REVIEW"]
                     elif j_stat == "FLC Required (Human Reviewed)": action_status = STATUS_ZH["HUMAN_FLC"]
                     elif j_stat == "FLC Required (Error/Warning)": action_status = STATUS_ZH["ERROR_FLC"]
+                    elif j_stat == "NG (Human Reviewed)": action_status = STATUS_ZH["HUMAN_NG"]
                     else: action_status = j_stat
                 except Exception:
                     cached = st.session_state.annotations.get(sn_loop, {"pos 1": "o", "pos 3": "o", "pos 5": "o", "pos 7": "o", "pos 9": "o"})
@@ -387,7 +400,9 @@ def render_review_tab():
                     if not cached.get('touched', False): 
                         action_status = STATUS_ZH["ERROR_FLC"] if loop_has_error else st.session_state.live_statuses.get(sn_loop, row.get("Status", STATUS_ZH["REVIEW"]))
                     else: 
-                        action_status = STATUS_ZH["HUMAN_FLC"] if cached.get('need_flc') == "Yes" else STATUS_ZH["HUMAN_PASS"]
+                        if cached.get('direct_ng', False): action_status = STATUS_ZH["HUMAN_NG"]
+                        elif cached.get('need_flc') == "Yes": action_status = STATUS_ZH["HUMAN_FLC"]
+                        else: action_status = STATUS_ZH["HUMAN_PASS"]
                 else:
                     anno = {'pos 1': 'o', 'pos 3': 'o', 'pos 5': 'o', 'pos 7': 'o', 'pos 9': 'o'}
                     action_status = STATUS_ZH["ERROR_FLC"] if loop_has_error else st.session_state.live_statuses.get(sn_loop, row.get("Status", STATUS_ZH["AUTO_PASS"]))
@@ -412,21 +427,33 @@ def render_review_tab():
         st.write(f"### {ln['record']}: {st.session_state.review_idx + 1} / {len(df_filtered_view)}")
         st.write(f"**{ln['sn']}** `{current_sn}` | **{ln['status']}** `{live_action_status}`")
 
-        f_col1, f_col2, _ = st.columns([1.5, 1.5, 7])
+        # Configured layout to support the new Direct NG explicit action
+        f_col1, f_col2, f_col3, _ = st.columns([1.5, 1.5, 1.5, 5.5])
         with f_col1:
-            if st.button(ln["flc_y"], key=f"flc_y_{location_key}_{current_sn}", type="primary" if current_flc == "Yes" else "secondary", width='stretch'):
+            if st.button(ln["flc_y"], key=f"flc_y_{location_key}_{current_sn}", type="primary" if (current_flc == "Yes" and live_action_status != STATUS_ZH["HUMAN_NG"]) else "secondary", width='stretch'):
                 st.session_state.annotations[current_sn]['need_flc'] = "Yes"
+                st.session_state.annotations[current_sn]['direct_ng'] = False
                 st.session_state.annotations[current_sn]['flc_manually_overridden'] = True
                 st.session_state.annotations[current_sn]['touched'] = True
                 st.session_state.live_statuses[current_sn] = STATUS_ZH["HUMAN_FLC"]
                 auto_save_and_compile_master(commit_as_human_reviewed=False)
                 st.rerun()
         with f_col2:
-            if st.button(ln["flc_n"], key=f"flc_n_{location_key}_{current_sn}", type="primary" if current_flc == "No" else "secondary", width='stretch'):
+            if st.button(ln["flc_n"], key=f"flc_n_{location_key}_{current_sn}", type="primary" if (current_flc == "No" and live_action_status != STATUS_ZH["HUMAN_NG"]) else "secondary", width='stretch'):
                 st.session_state.annotations[current_sn]['need_flc'] = "No"
+                st.session_state.annotations[current_sn]['direct_ng'] = False
                 st.session_state.annotations[current_sn]['flc_manually_overridden'] = True
                 st.session_state.annotations[current_sn]['touched'] = True
                 st.session_state.live_statuses[current_sn] = STATUS_ZH["HUMAN_PASS"]
+                auto_save_and_compile_master(commit_as_human_reviewed=False)
+                st.rerun()
+        with f_col3:
+            if st.button(ln["flc_ng"], key=f"flc_ng_{location_key}_{current_sn}", type="primary" if live_action_status == STATUS_ZH["HUMAN_NG"] else "secondary", width='stretch'):
+                st.session_state.annotations[current_sn]['direct_ng'] = True
+                st.session_state.annotations[current_sn]['need_flc'] = "Yes" # Logical fallback
+                st.session_state.annotations[current_sn]['flc_manually_overridden'] = True
+                st.session_state.annotations[current_sn]['touched'] = True
+                st.session_state.live_statuses[current_sn] = STATUS_ZH["HUMAN_NG"]
                 auto_save_and_compile_master(commit_as_human_reviewed=False)
                 st.rerun()
 
@@ -446,7 +473,7 @@ def render_review_tab():
     render_control_deck(location_key="top")
     st.divider()
 
-    classes = ['o', 'f', 'sn', 'n']
+    classes = ['o', 'f', 'sn', 'n', 'ng']
     grid_layout = [[1, None, 3], [None, 5, None], [7, None, 9]]
     st.subheader(ln["grid_title"])
     
@@ -466,13 +493,12 @@ def render_review_tab():
                         st.markdown('<div style="height: 38px;"></div>', unsafe_allow_html=True)
                         st.markdown('<div class="vertical-button-box">', unsafe_allow_html=True)
                         for cls_label in classes:
-                            # 依据语言环境展示中文按钮别名
                             btn_text = LABEL_DISPLAY[cls_label] if lang == "ZH" else cls_label.upper()
                             if st.button(btn_text, key=f"lbl_{current_sn}_{pos}_{cls_label}", type="primary" if (current_selection == cls_label) else "secondary", width='stretch'):
                                 st.session_state.annotations[current_sn][f'pos {pos}'] = cls_label
                                 st.session_state.annotations[current_sn]['flc_manually_overridden'] = False
+                                st.session_state.annotations[current_sn]['direct_ng'] = False # Re-evaluate manually
                                 st.session_state.annotations[current_sn]['need_flc'] = evaluate_flc_rules()
-                                
                                 auto_save_and_compile_master(commit_as_human_reviewed=False)
                                 st.rerun()
                         st.markdown('</div>', unsafe_allow_html=True)
@@ -504,8 +530,8 @@ def render_review_tab():
                                 <div style="border: 1px dashed rgba(128,128,128,0.3); padding: 14px; border-radius: 6px; background-color: rgba(128,128,128,0.05); font-size: 0.85rem; line-height: 1.5; width: 100%;">
                                     <strong style="font-size: 0.9rem; color: #ffaa00;">💡 操作指南</strong><br>
                                     • <strong>图像审查：</strong> 鼠标悬停缩略图可放大查看 AI 预测结果。<br>
-                                    • <strong>人工标注：</strong> 点击 <code>OK</code>、<code>太远</code>、<code>稍近</code> 或 <code>太近</code> 可覆盖原有类别。<br>
-                                    • <strong>自动逻辑：</strong> 若 ≥1 个位置为 <code>太近</code> 或 ≥3 个位置为 <code>稍近</code>，自动触发 FLC。<br>
+                                    • <strong>人工标注：</strong> 点击 <code>OK</code>、<code>太远</code>、<code>稍近</code>、<code>太近</code> 或 <code>NG</code> 可覆盖原有类别。<br>
+                                    • <strong>自动逻辑：</strong> 若 ≥1 个位置为 <code>太近</code> 或 <code>NG</code>、或 ≥3 个位置为 <code>稍近</code>，自动触发 FLC。<br>
                                     • <strong>快捷键：</strong> 按键盘 <code>←</code> 或 <code>→</code> 方向键可自动保存并切换单元。
                                 </div>
                             </div>
@@ -516,8 +542,8 @@ def render_review_tab():
                                 <div style="border: 1px dashed rgba(128,128,128,0.3); padding: 14px; border-radius: 6px; background-color: rgba(128,128,128,0.05); font-size: 0.85rem; line-height: 1.5; width: 100%;">
                                     <strong style="font-size: 0.9rem; color: #ffaa00;">💡 Quick Guide</strong><br>
                                     • <strong>Review:</strong> Hover over thumbnails to zoom and review AI predictions.<br>
-                                    • <strong>Annotate:</strong> Click <code>OK</code>, <code>Too Far</code>, <code>Slightly Near</code>, or <code>Too Near</code> to override any class.<br>
-                                    • <strong>Auto-FLC:</strong> Triggered if ≥1 position is <code>N</code> or ≥3 positions are <code>SN</code>.<br>
+                                    • <strong>Annotate:</strong> Click <code>OK</code>, <code>Too Far</code>, <code>Slightly Near</code>, <code>Too Near</code>, or <code>NG</code> to override any class.<br>
+                                    • <strong>Auto-FLC:</strong> Triggered if ≥1 position is <code>N</code> or <code>NG</code>, or ≥3 positions are <code>SN</code>.<br>
                                     • <strong>Hotkeys:</strong> Press <code>←</code> or <code>→</code> arrow keys to auto-save & switch units.
                                 </div>
                             </div>

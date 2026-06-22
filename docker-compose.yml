@@ -17,9 +17,13 @@ services:
     volumes:
       - "./blur_detection/assets:/workspace/blur_detection/blur_detection/assets"
       
-      # DYNAMIC TRANSLATION VOLUMES
-      - "${DOCKER_INPUT_PATH}:/data/input"
-      - "${DOCKER_OUTPUT_PATH}:/data/output"
+      # DYNAMIC TRANSLATION VOLUMES (Using Long Syntax to prevent Drive Letter bugs)
+      - type: bind
+        source: ${DOCKER_INPUT_PATH}
+        target: /data/input
+      - type: bind
+        source: ${DOCKER_OUTPUT_PATH}
+        target: /data/output
       
     deploy:
       resources:

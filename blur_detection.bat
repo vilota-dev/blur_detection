@@ -6,12 +6,22 @@ setlocal enabledelayedexpansion
 :: Force set a completely unique title for this terminal window session
 title BLUR_PIPE_MAIN_WINDOW
 
+:: Set working directory immediately to the script's location
+cd /d "%~dp0"
+
+:: ===================================================
+::  PRE-FLIGHT CLEANUP: Nuke stale environment states
+:: ===================================================
+if exist .env (
+    echo Cleaning up stale .env file from previous runs...
+    del /f /q .env
+)
+
 :: Check if the Docker daemon is responding
 docker info >nul 2>&1
 if %errorlevel% neq 0 (
     echo Docker Desktop is not running. Launching engine automatically...
     
-    :: Start Docker Desktop using its default Windows installation path
     start "" "C:\Program Files\Docker\Docker\Docker Desktop.exe"
     
     echo Waiting for Docker daemon to fully initialize...
@@ -43,7 +53,6 @@ echo     DRIVE AND FOLDER CONFIGURATION TOOL
 echo ===================================================
 echo.
 
-:: 1. Ask straight away whether the target drive is External or Internal
 echo Is your data drive external or internal?
 echo [E] External USB Device (e.g., Portable SSD)
 echo [I] Internal Local Drive (e.g., Local C or D Drive)
@@ -56,7 +65,6 @@ echo.
 echo Launching Folder Browser... Please select your INPUT folder.
 echo ---------------------------------------------------
 
-:: 2. Launch the native Windows folder visual browser using explicit UTF-8 output parsing
 set "CHOOSER_CODE=[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Select Input Directory'; $f.ShowNewFolderButton = $true; if($f.ShowDialog() -eq 'OK'){write-host $f.SelectedPath}"
 for /f "usebackq tokens=*" %%A in (`powershell -NoProfile -Command "%CHOOSER_CODE%"`) do set "RAW_INPUT_PATH=%%A"
 
@@ -67,43 +75,28 @@ if "%RAW_INPUT_PATH%"=="" (
     exit /b
 )
 
-:: 3. Extract the drive letter and convert it to lowercase for Docker formatting
 set "DRIVE=%RAW_INPUT_PATH:~0,1%"
-for %%L in (a b c d e f g h i j k l m n o p q r s t u v w x y z) do (
-    if /i "%DRIVE%"=="%%L" set "DRIVE_LOWER=%%L"
-)
 
-:: 4. Calculate Output Paths based on drive type
 if "%IS_EXTERNAL%"=="Y" (
-    :: External Drive: Keep the automated /pipeline_outputs mapping structure
     set "RAW_OUTPUT_PATH=%DRIVE%:\pipeline_outputs"
     set "FOLDER_TRAIL=%RAW_INPUT_PATH:~3%"
     if not "!FOLDER_TRAIL!"=="" (
         set "RAW_OUTPUT_PATH=!RAW_OUTPUT_PATH!\!FOLDER_TRAIL!"
     )
 ) else (
-    :: Internal Drive: Output directly into the exact same folder as the input directory
     set "RAW_OUTPUT_PATH=%RAW_INPUT_PATH%\pipeline_outputs"
 )
 
-:PROCESS_PATHS
-:: Cross-platform native forward-slash layouts for Docker Desktop volume mounting stability
-set "TRAILING_PATH=%RAW_INPUT_PATH:~3%"
-set "TRAILING_PATH=!TRAILING_PATH:\=/!"
-set "DOCKER_INPUT_PATH=%DRIVE_LOWER%:/!TRAILING_PATH!"
+:: --- CRITICAL PATH SANITIZATION ---
+:: Convert backslashes to forward slashes for Docker compatibility
+set "SAFE_INPUT_PATH=!RAW_INPUT_PATH:\=/!"
+set "SAFE_OUTPUT_PATH=!RAW_OUTPUT_PATH:\=/!"
 
-set "OUT_TRAILING_PATH=%RAW_OUTPUT_PATH:~3%"
-set "OUT_TRAILING_PATH=!OUT_TRAILING_PATH:\=/!"
-set "DOCKER_OUTPUT_PATH=%DRIVE_LOWER%:/!OUT_TRAILING_PATH!"
-
-goto :DO_MOUNT_CHECK
-
-:DO_MOUNT_CHECK
 echo ---------------------------------------------------
 echo Configuration Summary:
 echo   Target Drive : %DRIVE%:\
-echo   Input Folder : %RAW_INPUT_PATH%
-echo   Output Folder: %RAW_OUTPUT_PATH%
+echo   Input Folder : %SAFE_INPUT_PATH%
+echo   Output Folder: %SAFE_OUTPUT_PATH%
 echo ---------------------------------------------------
 echo.
 
@@ -116,24 +109,20 @@ goto :LAUNCH_DOCKER
 
 :LAUNCH_DOCKER
 echo Starting Blur Detection Pipeline Container...
-cd /d "%~dp0"
 
-:: Step 1: Write variables directly to a local file cleanly without trailing spaces
+:: Write sanitized paths directly to the fresh .env file
 (
-  echo DOCKER_INPUT_PATH=%DOCKER_INPUT_PATH%
-  echo DOCKER_OUTPUT_PATH=%DOCKER_OUTPUT_PATH%
+  echo DOCKER_INPUT_PATH=!SAFE_INPUT_PATH!
+  echo DOCKER_OUTPUT_PATH=!SAFE_OUTPUT_PATH!
 ) > .env
 
-:: Step 2: [FIXED] Force clean up any leftover containers first to prevent mounting/port conflicts
-docker compose down >nul 2>&1
+:: Force complete cleanup of leftover containers AND stale volumes
+docker compose down -v --remove-orphans >nul 2>&1
 
-:: Step 3: Spin up the entire stack detached safely
+:: Spin up the stack
 docker compose up -d
 
-:: Step 4: Delete the temporary environment declaration block right away
-if exist .env del .env
-
-:: DETACHED CLOSE MONITOR: Kills container immediately if terminal execution window is clicked closed.
+:: DETACHED CLOSE MONITOR
 start /b "" powershell -NoProfile -Command "$currentTitle = 'BLUR_PIPE_MAIN_WINDOW'; while ($true) { Start-Sleep -Seconds 1; $proc = Get-Process | Where-Object { $_.MainWindowTitle -eq $currentTitle }; if (-not $proc) { Start-Process cmd.exe -ArgumentList '/c docker stop blur_processor && docker rm blur_processor' -WindowStyle Hidden; break } }" >nul 2>&1
 
 timeout /t 2 /nobreak >nul
@@ -162,8 +151,9 @@ echo.
 echo Stopping Docker pipeline cleanly...
 echo.
 
-:: [FIXED] Synchronous exit: Block the script until the container is completely stopped and unmounted
 docker compose down
+
+if exist .env del /f /q .env
 
 echo.
 echo You may now safely close this window.

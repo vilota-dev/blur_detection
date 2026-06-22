@@ -25,7 +25,8 @@ STATUS_MAPPING_ZH = {
     "Pass (Human Reviewed)": "人工确认通过 (Pass)",
     "Review (Flagged for Double Check)": "待人工审查 (Review)",
     "FLC Required (Human Reviewed)": "人工确认复核 (FLC)",
-    "FLC Required (Error/Warning)": "异常复核 (FLC)"
+    "FLC Required (Error/Warning)": "异常复核 (FLC)",
+    "NG (Human Reviewed)": "人工确认报废 (NG)"
 }
 
 def process_and_predict(input_folder, output_root, config, device, segmenter, model):
@@ -160,6 +161,17 @@ def process_and_predict(input_folder, output_root, config, device, segmenter, mo
             final_pred = ID_TO_LABEL.get(max_idx, str(max_idx))
             conf = probs[max_idx].item()
 
+            sn_thresh_raw = (
+                config.get("sn_count_threshold_percent") or 
+                config.get("sn_single_threshold_percent", 45)
+            )
+
+            sn_thresh = sn_thresh_raw / 100.0 if sn_thresh_raw >= 1.0 else sn_thresh_raw
+
+            if final_pred == 'sn' and conf < sn_thresh:
+                final_pred = 'o'
+                conf = ok_prob
+
         raw_predictions.append({
             "SN": sn, "Position": position, "Prediction": final_pred,
             "Confidence": round(conf * 100, 2), "Action": "Evaluate", "image_path": str(img_p),
@@ -226,7 +238,6 @@ def process_and_predict(input_folder, output_root, config, device, segmenter, mo
     
     if paired_cols:
         pred_frame = pd.DataFrame({p_col: df_final[p_col].astype(str).str.strip().str.lower() for p_col, _ in paired_cols})
-        conf_frame = pd.DataFrame({c_col: pd.to_numeric(df_final[c_col].astype(str).str.replace('%', '', regex=False).str.strip(), errors='coerce') for _, c_col in paired_cols})
 
         if config.get("filter_on_n", True):
             has_n_mask = pred_frame.eq('n').any(axis=1)
@@ -234,23 +245,13 @@ def process_and_predict(input_folder, output_root, config, device, segmenter, mo
             has_n_mask = pd.Series(False, index=df_final.index)
 
         if config.get("filter_on_sn_single", True):
-            sn_single_thresh = config.get("sn_single_threshold_percent", 45)
-            any_sn_single_mask = pd.DataFrame({
-                p_col: (pred_frame[p_col] == 'sn') & (conf_frame[c_col] >= sn_single_thresh)
-                for p_col, c_col in paired_cols
-            }).any(axis=1)
+            any_sn_single_mask = pred_frame.eq('sn').any(axis=1)
         else:
             any_sn_single_mask = pd.Series(False, index=df_final.index)
 
-        sn_count_thresh = config.get("sn_count_threshold_percent")
         sn_count_req = config.get("sn_count_required")
-        if config.get("filter_on_sn_count", True) and sn_count_thresh is not None and sn_count_req is not None:
-            sn_mask_count = (
-                pd.DataFrame({
-                    p_col: (pred_frame[p_col] == 'sn') & (conf_frame[c_col] >= sn_count_thresh)
-                    for p_col, c_col in paired_cols
-                }).sum(axis=1) >= sn_count_req
-            )
+        if config.get("filter_on_sn_count", True) and sn_count_req is not None:
+            sn_mask_count = pred_frame.eq('sn').sum(axis=1) >= sn_count_req
         else:
             sn_mask_count = pd.Series(False, index=df_final.index)
 
@@ -309,7 +310,6 @@ def process_and_predict(input_folder, output_root, config, device, segmenter, mo
     elapsed_time = time.time() - start_time
     avg_time = elapsed_time / total_images if total_images > 0 else 0
 
-    # 兼容处理返回值计数器的中文检索映射
     flc_err_count = int((df_final["Status"] == "异常复核 (FLC)").sum()) if paired_cols else 0
     rev_check_count = int((df_final["Status"] == "待人工审查 (Review)").sum()) if paired_cols else 0
 
