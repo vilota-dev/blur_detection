@@ -19,6 +19,15 @@ from utils.image_utils import (
 )
 from utils.file_utils import get_grid_cell_from_name, extract_sn_and_pos
 
+# --- 中文状态持久化映射字典 ---
+STATUS_MAPPING_ZH = {
+    "Pass (Program Pass)": "自动通过 (Pass)",
+    "Pass (Human Reviewed)": "人工确认通过 (Pass)",
+    "Review (Flagged for Double Check)": "待人工审查 (Review)",
+    "FLC Required (Human Reviewed)": "人工确认复核 (FLC)",
+    "FLC Required (Error/Warning)": "异常复核 (FLC)"
+}
+
 def process_and_predict(input_folder, output_root, config, device, segmenter, model):
     start_time = time.time()
 
@@ -157,7 +166,6 @@ def process_and_predict(input_folder, output_root, config, device, segmenter, mo
             "Error Description": ""
         })
 
-        # --- SAVING DIRECTLY ENCAPSULATED BY UNIT SERIAL NUMBER FOLDER ---
         unit_img_dir = processed_images_dir / str(sn)
         unit_img_dir.mkdir(parents=True, exist_ok=True)
         out_path = unit_img_dir / img_p.name
@@ -249,16 +257,9 @@ def process_and_predict(input_folder, output_root, config, device, segmenter, mo
         trigger_review_mask = has_n_mask | any_sn_single_mask | sn_mask_count
         df_final.loc[trigger_review_mask & (df_final["Status"] == "Pass (Program Pass)"), "Status"] = "Review (Flagged for Double Check)"
 
-        # Recompile filtered data frames based on evaluation or error metrics
-        review_mask = df_final["Status"].isin(["FLC Required (Error/Warning)", "Review (Flagged for Double Check)"])
-        df_filtered = df_final[review_mask].copy()
-
-        filtered_csv = dataset_output_dir / config.get("filtered_csv", "predictions_filtered.csv")
-        filtered_xlsx = dataset_output_dir / config.get("filtered_excel", "predictions_filtered.xlsx")
-        df_filtered.to_csv(filtered_csv, index=False)
-        df_filtered.to_excel(filtered_xlsx, index=False)
-
-        # Build Unit Serial Number Folder structures containing specific metadata JSON files for ALL units
+        # ----------------------------------------------------
+        # 1. 核心保持：先用原始状态生成并保存 metadata.json (不修改 JSON)
+        # ----------------------------------------------------
         for _, row in df_final.iterrows():
             sn = row["SN"]
             dst_dir = processed_images_dir / str(sn)
@@ -266,7 +267,7 @@ def process_and_predict(input_folder, output_root, config, device, segmenter, mo
 
             unit_json_data = {
                 "SN": sn,
-                "Status": row["Status"],
+                "Status": row["Status"],  # 保持原厂英文状态不变写入 JSON
                 "Error Description": row.get('Error Description', 'None'),
                 "positions": {}
             }
@@ -285,6 +286,20 @@ def process_and_predict(input_folder, output_root, config, device, segmenter, mo
             with open(json_file_path, "w") as jf:
                 json.dump(unit_json_data, jf, indent=4)
 
+        # ----------------------------------------------------
+        # 2. 状态映射变更：对 Dataframe 执行中文翻译后再导出 CSV / Excel
+        # ----------------------------------------------------
+        df_final["Status"] = df_final["Status"].map(lambda x: STATUS_MAPPING_ZH.get(x, x))
+
+        # 编译经过过滤的分流报表（此时 Status 列已经是中文）
+        review_mask = df_final["Status"].isin(["异常复核 (FLC)", "待人工审查 (Review)"])
+        df_filtered = df_final[review_mask].copy()
+
+        filtered_csv = dataset_output_dir / config.get("filtered_csv", "predictions_filtered.csv")
+        filtered_xlsx = dataset_output_dir / config.get("filtered_excel", "predictions_filtered.xlsx")
+        df_filtered.to_csv(filtered_csv, index=False)
+        df_filtered.to_excel(filtered_xlsx, index=False)
+
     full_csv = dataset_output_dir / config.get("output_csv", "consolidated_batch_predictions.csv")
     full_xlsx = dataset_output_dir / config.get("output_excel", "consolidated_batch_predictions.xlsx")
     df_final.to_csv(full_csv, index=False)
@@ -294,8 +309,9 @@ def process_and_predict(input_folder, output_root, config, device, segmenter, mo
     elapsed_time = time.time() - start_time
     avg_time = elapsed_time / total_images if total_images > 0 else 0
 
-    flc_err_count = int((df_final["Status"] == "FLC Required (Error/Warning)").sum()) if paired_cols else 0
-    rev_check_count = int((df_final["Status"] == "Review (Flagged for Double Check)").sum()) if paired_cols else 0
+    # 兼容处理返回值计数器的中文检索映射
+    flc_err_count = int((df_final["Status"] == "异常复核 (FLC)").sum()) if paired_cols else 0
+    rev_check_count = int((df_final["Status"] == "待人工审查 (Review)").sum()) if paired_cols else 0
 
     return {
         "full_csv": str(full_csv),

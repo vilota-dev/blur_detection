@@ -30,11 +30,11 @@ def main():
     
     # Language Selection Component
     if 'lang' not in st.session_state:
-        st.session_state.lang = "EN"
+        st.session_state.lang = "ZH"
         
     col_title, col_lang = st.columns([8, 2])
     with col_lang:
-        st.session_state.lang = st.selectbox("🌐 Language / 语言", options=["EN", "ZH"], index=0 if st.session_state.lang == "EN" else 1)
+        st.session_state.lang = st.selectbox("🌐 Language / 语言", options=["EN", "ZH"], index=1 if st.session_state.lang == "ZH" else 0)
     
     ln = LANG_DICT[st.session_state.lang]
     

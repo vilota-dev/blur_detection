@@ -13,7 +13,7 @@ title BLUR_PIPE_MAIN_WINDOW
 set "IS_EXTERNAL=N"
 
 :: Change this to your exact local storage directory containing your images
-set "RAW_INPUT_PATH=C:\Users\Vilota\mingjie\600D\IMG"
+set "RAW_INPUT_PATH=C:\Users\Administrator\vilota\600D"
 :: =========================================================================
 
 echo ===================================================

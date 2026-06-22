@@ -6,8 +6,40 @@ setlocal enabledelayedexpansion
 :: Force set a completely unique title for this terminal window session
 title BLUR_PIPE_MAIN_WINDOW
 
+:: Check if the Docker daemon is responding
+docker info >nul 2>&1
+if %errorlevel% neq 0 (
+    echo Docker Desktop is not running. Launching engine automatically...
+    
+    :: Start Docker Desktop using its default Windows installation path
+    start "" "C:\Program Files\Docker\Docker\Docker Desktop.exe"
+    
+    echo Waiting for Docker daemon to fully initialize...
+    echo This may take up to 20-30 seconds depending on system drive speed.
+    echo.
+    
+    :WAIT_FOR_DOCKER
+    timeout /t 3 /nobreak >nul
+    docker info >nul 2>&1
+    if %errorlevel% neq 0 (
+        set /a count+=1
+        echo . [Attempt !count!] Still initializing...
+        if !count! geq 15 (
+            color 0C
+            echo.
+            echo ERROR: Docker Desktop timed out or failed to start up.
+            echo Please open Docker Desktop manually and try again.
+            pause
+            exit /b
+        )
+        goto :WAIT_FOR_DOCKER
+    )
+    echo Docker engine successfully initialized!
+    echo.
+)
+
 echo ===================================================
-echo    DRIVE & FOLDER CONFIGURATION TOOL
+echo     DRIVE AND FOLDER CONFIGURATION TOOL
 echo ===================================================
 echo.
 
@@ -55,30 +87,14 @@ if "%IS_EXTERNAL%"=="Y" (
 )
 
 :PROCESS_PATHS
-if "%IS_EXTERNAL%"=="Y" (
-    :: External Drive Path Formatting (/mnt/wsl/external_d/...)
-    set "TRAILING_PATH=%RAW_INPUT_PATH:~3%"
-    set "TRAILING_PATH=!TRAILING_PATH:\=/!"
-    set "DOCKER_INPUT_PATH=/mnt/wsl/external_d/!TRAILING_PATH!"
-    
-    set "OUT_TRAILING_PATH=%RAW_OUTPUT_PATH:~3%"
-    set "OUT_TRAILING_PATH=!OUT_TRAILING_PATH:\=/!"
-    set "DOCKER_OUTPUT_PATH=/mnt/wsl/external_d/!OUT_TRAILING_PATH!"
-) else (
-    :: FIX: Internal Drive Path Formatting Conversion
-    :: Converts "D:\Folder\Subfolder" into "/d/Folder/Subfolder"
-    set "TRAILING_PATH=%RAW_INPUT_PATH:~3%"
-    set "TRAILING_PATH=!TRAILING_PATH:\=/!"
-    set "DOCKER_INPUT_PATH=/!DRIVE_LOWER!/!TRAILING_PATH!"
-    
-    set "OUT_TRAILING_PATH=%RAW_OUTPUT_PATH:~3%"
-    set "OUT_TRAILING_PATH=!OUT_TRAILING_PATH:\=/!"
-    set "DOCKER_OUTPUT_PATH=/!DRIVE_LOWER!/!OUT_TRAILING_PATH!"
-)
+:: Cross-platform native forward-slash layouts for Docker Desktop volume mounting stability
+set "TRAILING_PATH=%RAW_INPUT_PATH:~3%"
+set "TRAILING_PATH=!TRAILING_PATH:\=/!"
+set "DOCKER_INPUT_PATH=%DRIVE_LOWER%:/!TRAILING_PATH!"
 
-:: Export variables directly to Docker Compose engine environment block
-set "DOCKER_INPUT_PATH=%DOCKER_INPUT_PATH%"
-set "DOCKER_OUTPUT_PATH=%DOCKER_OUTPUT_PATH%"
+set "OUT_TRAILING_PATH=%RAW_OUTPUT_PATH:~3%"
+set "OUT_TRAILING_PATH=!OUT_TRAILING_PATH:\=/!"
+set "DOCKER_OUTPUT_PATH=%DRIVE_LOWER%:/!OUT_TRAILING_PATH!"
 
 goto :DO_MOUNT_CHECK
 
@@ -94,13 +110,7 @@ echo.
 if not exist "%RAW_INPUT_PATH%" goto :ERROR_MISSING
 if not exist "%RAW_OUTPUT_PATH%" mkdir "%RAW_OUTPUT_PATH%"
 
-if "%IS_EXTERNAL%"=="Y" (
-    echo Mounting %DRIVE%:\ to Docker WSL Kernel with UTF-8...
-    wsl -d docker-desktop mkdir -p /mnt/wsl/external_d
-    wsl -d docker-desktop mount -t drvfs %DRIVE%: /mnt/wsl/external_d -o codepage=936,iocharset=utf8,metadata
-) else (
-    echo Internal Drive Detected. Skipping WSL mount layer safely...
-)
+echo Preparing paths for Docker Desktop...
 goto :LAUNCH_DOCKER
 
 
@@ -108,9 +118,22 @@ goto :LAUNCH_DOCKER
 echo Starting Blur Detection Pipeline Container...
 cd /d "%~dp0"
 
-docker compose up -d >nul 2>&1
+:: Step 1: Write variables directly to a local file cleanly without trailing spaces
+(
+  echo DOCKER_INPUT_PATH=%DOCKER_INPUT_PATH%
+  echo DOCKER_OUTPUT_PATH=%DOCKER_OUTPUT_PATH%
+) > .env
 
-:: DETACHED CLOSE MONITOR: Completely independent process tree. Kills container immediately if window is clicked shut.
+:: Step 2: [FIXED] Force clean up any leftover containers first to prevent mounting/port conflicts
+docker compose down >nul 2>&1
+
+:: Step 3: Spin up the entire stack detached safely
+docker compose up -d
+
+:: Step 4: Delete the temporary environment declaration block right away
+if exist .env del .env
+
+:: DETACHED CLOSE MONITOR: Kills container immediately if terminal execution window is clicked closed.
 start /b "" powershell -NoProfile -Command "$currentTitle = 'BLUR_PIPE_MAIN_WINDOW'; while ($true) { Start-Sleep -Seconds 1; $proc = Get-Process | Where-Object { $_.MainWindowTitle -eq $currentTitle }; if (-not $proc) { Start-Process cmd.exe -ArgumentList '/c docker stop blur_processor && docker rm blur_processor' -WindowStyle Hidden; break } }" >nul 2>&1
 
 timeout /t 2 /nobreak >nul
@@ -118,7 +141,7 @@ start "" "http://localhost:8501"
 
 echo.
 echo ===================================================
-echo    EXTERNAL SSD MOUNT TOOL FOR BLUR PIPELINE
+echo     EXTERNAL SSD MOUNT TOOL FOR BLUR PIPELINE
 echo ===================================================
 echo.
 echo Status: SUCCESS
@@ -137,14 +160,13 @@ pause
 
 echo.
 echo Stopping Docker pipeline cleanly...
-echo .
-echo .
+echo.
+
+:: [FIXED] Synchronous exit: Block the script until the container is completely stopped and unmounted
+docker compose down
+
+echo.
 echo You may now safely close this window.
-
-:: DETACHED MANUAL EXIT: Spins off a background cleanup process thread
-start /b "" cmd /c "docker stop blur_processor >nul 2>&1 && docker rm blur_processor >nul 2>&1"
-
-:: CLEAN AUTO-CLOSE: End the script context parameter tree cleanly
 goto :EOF
 
 :ERROR_MISSING

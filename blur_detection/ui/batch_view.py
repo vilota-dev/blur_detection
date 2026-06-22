@@ -25,11 +25,13 @@ LANG_BATCH = {
         "err_title": "⚠️ FLC Required (Error/Warning)",
         "err_desc": "*Reason: Pipeline processing failures, missing expected position views, name parsing exceptions, or SAM3 building localization timeouts.*",
         "warn_title": "🔍 Review (Flagged for Double Check)",
-        "warn_desc": "*Reason: Successful pipeline processing, but triggered by low model confidence scores or classification defect tags requiring operator validation.*"
+        "warn_desc": "*Reason: Successful pipeline processing, but triggered by low model confidence scores or classification defect tags requiring operator validation.*",
+        "linked_paths": "🔗 Volume Mount Mapping Matrix:",
+        "not_set": "Not explicitly bound via Host environment"
     },
     "ZH": {
         "header": "批量数据处理控制台",
-        "info": "在下方配置您的输入数据源和输出目标路径。路径变更将自动同步写入本地系统配置预设中。",
+        "info": "在下方配置您的输入数据源 and 输出目标路径。路径变更将自动同步写入本地系统配置预设中。",
         "in_dir": "📁 原始输入图像文件夹路径",
         "out_dir": "🎯 预测结果输出根文件夹路径",
         "device": "当前运行设备上下文环境",
@@ -43,7 +45,9 @@ LANG_BATCH = {
         "err_title": "⚠️ 需要 FLC (错误/警告)",
         "err_desc": "*原因：流水线处理失败、缺失指定位置视图、命名解析异常或 SAM3 建筑定位超时。*",
         "warn_title": "🔍 待审查 (标记人工复核)",
-        "warn_desc": "*原因：算法流水线正常运行，但模型置信度得分较低或触发缺陷分类标签，需要人工操作员确认。*"
+        "warn_desc": "*原因：算法流水线正常运行，但模型置信度得分较低或触发缺陷分类标签，需要人工操作员确认。*",
+        "linked_paths": "🔗 宿主机底层挂载路径映射关系:",
+        "not_set": "未映射显式物理路径 (当前使用网格内盘路径)"
     }
 }
 
@@ -115,6 +119,18 @@ def render_batch_tab():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     st.write(f"{ln['device']}: **{device}**")
+
+    import os
+    host_input = os.environ.get("DOCKER_INPUT_PATH", ln["not_set"])
+    host_output = os.environ.get("DOCKER_OUTPUT_PATH", ln["not_set"])
+    
+    st.markdown(f"""
+    <div style="background-color: rgba(128, 128, 128, 0.05); padding: 10px; border-radius: 6px; border: 1px dashed rgba(128,128,128,0.2); margin-bottom: 15px;">
+        <span style="font-weight: 600; font-size: 0.9rem;">{ln['linked_paths']}</span><br>
+        <code style="font-size: 0.85rem;">{host_input}</code> ➡️ <code style="color: #ffaa00;">/data/input</code><br>
+        <code style="font-size: 0.85rem;">{host_output}</code> ➡️ <code style="color: #ffaa00;">/data/output</code>
+    </div>
+    """, unsafe_allow_html=True)
 
     if st.button(ln["run_btn"], type="primary"):
         try:

@@ -2,13 +2,18 @@ version: '3.8'
 
 services:
   blur_pipeline:
-    image: blur-detection-app
+    image: blur_detection_app:latest
     container_name: blur_processor
     build:
       context: .
       dockerfile: Dockerfile
     ports:
       - "8501:8501"
+
+    environment:
+      - DOCKER_INPUT_PATH=${DOCKER_INPUT_PATH}
+      - DOCKER_OUTPUT_PATH=${DOCKER_OUTPUT_PATH}
+      
     volumes:
       - "./blur_detection/assets:/workspace/blur_detection/blur_detection/assets"
       
