@@ -116,41 +116,35 @@ echo Starting Blur Detection Pipeline Container...
   echo DOCKER_OUTPUT_PATH=!SAFE_OUTPUT_PATH!
 ) > .env
 
-:: Force complete cleanup of leftover containers AND stale volumes
-docker compose down -v --remove-orphans >nul 2>&1
+:: Get current CMD process ID (PID)
+for /f "usebackq tokens=*" %%A in (`powershell -NoProfile -Command "$parent_id = (Get-WmiObject Win32_Process | Where-Object {$_.ProcessID -eq $PID}).ParentProcessId; (Get-WmiObject Win32_Process | Where-Object {$_.ProcessID -eq $parent_id}).ParentProcessId"`) do set "MY_PID=%%A"
 
-:: Spin up the stack
+
+:: DETACHED CLOSE MONITOR (Watches CMD process ID to automatically run docker compose down on exit)
+if not "!MY_PID!"=="" (
+    start "" powershell -WindowStyle Hidden -NoProfile -Command "$pid_to_watch = !MY_PID!; while ($true) { Start-Sleep -Seconds 1; $proc = Get-Process -Id $pid_to_watch -ErrorAction SilentlyContinue; if (-not $proc) { Start-Process cmd.exe -ArgumentList '/c docker compose down' -WorkingDirectory '!CD!' -WindowStyle Hidden; break } }" >nul 2>&1
+)
+
+:: Spin up the stack in background (detached)
 docker compose up -d
-
-:: DETACHED CLOSE MONITOR
-start /b "" powershell -NoProfile -Command "$currentTitle = 'BLUR_PIPE_MAIN_WINDOW'; while ($true) { Start-Sleep -Seconds 1; $proc = Get-Process | Where-Object { $_.MainWindowTitle -eq $currentTitle }; if (-not $proc) { Start-Process cmd.exe -ArgumentList '/c docker stop blur_processor && docker rm blur_processor' -WindowStyle Hidden; break } }" >nul 2>&1
 
 timeout /t 2 /nobreak >nul
 start "" "http://localhost:8501"
 
-echo.
-echo ===================================================
-echo     EXTERNAL SSD MOUNT TOOL FOR BLUR PIPELINE
-echo ===================================================
-echo.
-echo Status: SUCCESS
-echo Target Folders successfully mapped into pipeline array.
+echo Starting Blur Detection Pipeline Container...
 echo.
 echo ---------------------------------------------------
 echo Pipeline is running! Interface opened at:
 echo http://localhost:8501
 echo ---------------------------------------------------
-echo.
-echo WARNING: Pressing any key HERE or CLOSING this window
-echo will automatically STOP the Docker pipeline containers.
+echo WARNING: Closing this terminal window/tab or pressing
+echo any key here will automatically STOP the Docker container.
 echo ---------------------------------------------------
 echo.
 pause
 
 echo.
 echo Stopping Docker pipeline cleanly...
-echo.
-
 docker compose down
 
 if exist .env del /f /q .env
