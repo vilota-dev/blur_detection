@@ -125,6 +125,11 @@ if not "!MY_PID!"=="" (
     start "" powershell -WindowStyle Hidden -NoProfile -Command "$pid_to_watch = !MY_PID!; while ($true) { Start-Sleep -Seconds 1; $proc = Get-Process -Id $pid_to_watch -ErrorAction SilentlyContinue; if (-not $proc) { Start-Process cmd.exe -ArgumentList '/c docker compose down' -WorkingDirectory '!CD!' -WindowStyle Hidden; break } }" >nul 2>&1
 )
 
+:: Force remove stale container and prune dangling networks to clear mount conflicts
+echo Cleaning up stale Docker state...
+docker rm -f blur_processor >nul 2>&1
+docker network prune -f >nul 2>&1
+
 :: Spin up the stack in background (detached)
 docker compose up -d
 
