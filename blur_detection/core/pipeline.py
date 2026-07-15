@@ -18,6 +18,7 @@ from utils.image_utils import (
     get_laplacian_tensor_from_array
 )
 from utils.file_utils import get_grid_cell_from_name, extract_sn_and_pos
+from concurrent.futures import ThreadPoolExecutor
 
 # --- 中文状态持久化映射字典 ---
 STATUS_MAPPING_ZH = {
@@ -28,6 +29,166 @@ STATUS_MAPPING_ZH = {
     "FLC Required (Error/Warning)": "异常复核 (FLC)",
     "NG (Human Reviewed)": "人工确认报废 (NG)"
 }
+
+def async_save_image(final_image, out_path):
+    Image.fromarray(cv2.cvtColor(final_image, cv2.COLOR_BGR2RGB)).save(out_path)
+
+def segment_single_image(img_p, segmenter, config, pos_shifts, dino_transform):
+    try:
+        sn, position = extract_sn_and_pos(img_p.name)
+    except Exception as e:
+        return {
+            "success": False,
+            "sn": "Unknown", "position": "Unknown", "img_p": img_p,
+            "error_desc": f"Filename identification failed: {e}"
+        }
+
+    image = segmenter.load_image(str(img_p))
+    if image is None:
+        return {
+            "success": False,
+            "sn": sn, "position": position, "img_p": img_p,
+            "error_desc": "Image could not be loaded or identified"
+        }
+
+    cell = get_grid_cell_from_name(img_p.name)
+    if cell is None:
+        return {
+            "success": False,
+            "sn": sn, "position": position, "img_p": img_p,
+            "error_desc": "Grid crop region selection failed"
+        }
+    
+    crop = segmenter.select_crop_region(image, cell)
+    if crop is None:
+        return {
+            "success": False,
+            "sn": sn, "position": position, "img_p": img_p,
+            "error_desc": "Grid crop region selection failed"
+        }
+
+    result = segmenter.add_text_prompt(crop, "building")
+    if not result or len(result.get("masks", [])) == 0:
+        return {
+            "success": False,
+            "sn": sn, "position": position, "img_p": img_p,
+            "error_desc": "SAM3 segmentation failed to find building masks"
+        }
+
+    h_crop, w_crop = crop.shape[:2]
+    bboxes = []
+    
+    for mask in result["masks"]:
+        mask_np = mask[0].cpu().numpy() if hasattr(mask[0], "cpu") else mask[0]
+        if mask_np.ndim == 3: mask_np = mask_np[0]
+        mask_uint = (mask_np > 0.5).astype(np.uint8)
+        mask_resized = cv2.resize(mask_uint, (w_crop, h_crop), interpolation=cv2.INTER_NEAREST)
+        ys, xs = np.where(mask_resized > 0)
+        if xs.size == 0: continue
+        x0, y0 = int(xs.min()), int(ys.min())
+        x1, y1 = int(xs.max()) + 1, int(ys.max()) + 1
+        bboxes.append([x0, y0, x1, y1])
+        if len(bboxes) == 2:
+            break
+
+    # Free the SAM3 masks immediately (VRAM Optimization)
+    del result
+    result = None
+
+    if len(bboxes) < 2:
+        return {
+            "success": False,
+            "sn": sn, "position": position, "img_p": img_p,
+            "error_desc": f"SAM3 failed to detect two buildings (found {len(bboxes)})"
+        }
+
+    dx, dy = pos_shifts.get(position, pos_shifts.get(str(position), [-50, 0]))
+
+    final_image = directional_crop_and_pad(
+        crop, bboxes,
+        target_size=tuple(config.get("target_size", (200, 200))),
+        dx=dx,
+        dy=dy
+    )
+
+    # Preprocess DINOv3 inputs with Pinned Memory (Item 3: Pinned Memory)
+    input_tensor = dino_transform(Image.fromarray(cv2.cvtColor(final_image, cv2.COLOR_BGR2RGB))).unsqueeze(0).pin_memory()
+    patch_mask = get_horizontal_patch_mask_from_array(final_image).unsqueeze(0).pin_memory()
+    lap = get_laplacian_tensor_from_array(final_image).pin_memory()
+
+    return {
+        "success": True,
+        "sn": sn, "position": position, "img_p": img_p,
+        "final_image": final_image,
+        "input_tensor": input_tensor,
+        "patch_mask": patch_mask,
+        "lap": lap
+    }
+
+def process_active_batch(batch_items, model, device, config, id_to_label, raw_predictions, processed_images_dir, executor):
+    # Stack tensors along batch dimension (Item 2: Batching)
+    batched_input = torch.cat([item["input_tensor"] for item in batch_items], dim=0).to(device, non_blocking=True)
+    batched_patch_mask = torch.cat([item["patch_mask"] for item in batch_items], dim=0).to(device, non_blocking=True)
+    batched_lap = torch.cat([item["lap"] for item in batch_items], dim=0).to(device, non_blocking=True)
+
+    # Run DINOv3 batched inference using mixed precision (Item 2: Batching)
+    with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
+        logits = model(batched_input, batched_patch_mask, batched_lap)
+        probs_all = torch.softmax(logits, dim=1)
+
+    # Post-process each item in the batch
+    for i, item in enumerate(batch_items):
+        sn = item["sn"]
+        position = item["position"]
+        img_p = item["img_p"]
+        final_image = item["final_image"]
+        probs = probs_all[i]
+
+        ok_idx = config.get("ok_class_index", 1)
+        ok_prob = probs[ok_idx].item()
+        
+        if ok_prob >= config.get("confidence_gate", 0.9):
+            final_pred = "o"
+            conf = ok_prob
+        else:
+            defect_idxs = [idx for idx in range(len(probs)) if idx != ok_idx]
+            defect_probs = probs[defect_idxs]
+            max_idx = defect_idxs[int(torch.argmax(defect_probs).item())]
+            final_pred = id_to_label.get(max_idx, str(max_idx))
+            conf = probs[max_idx].item()
+
+            sn_thresh_raw = (
+                config.get("sn_count_threshold_percent") or 
+                config.get("sn_single_threshold_percent", 45)
+            )
+
+            sn_thresh = sn_thresh_raw / 100.0 if sn_thresh_raw >= 1.0 else sn_thresh_raw
+
+            if final_pred == 'sn' and conf < sn_thresh:
+                final_pred = 'o'
+                conf = ok_prob
+
+        raw_predictions.append({
+            "idx": item["idx"],
+            "SN": sn, "Position": position, "Prediction": final_pred,
+            "Confidence": round(conf * 100, 2),
+            "f confidence": round(probs[0].item() * 100, 2),
+            "o confidence": round(probs[1].item() * 100, 2),
+            "sn confidence": round(probs[2].item() * 100, 2),
+            "n confidence": round(probs[3].item() * 100, 2),
+            "Action": "Evaluate", "image_path": str(img_p),
+            "Error Description": ""
+        })
+
+        # Asynchronously save image in a background thread (Item 1: CPU-GPU overlap)
+        unit_img_dir = processed_images_dir / str(sn)
+        unit_img_dir.mkdir(parents=True, exist_ok=True)
+        out_path = unit_img_dir / img_p.name
+        
+        executor.submit(async_save_image, final_image, out_path)
+
+    # Clean up GPU references immediately
+    del batched_input, batched_patch_mask, batched_lap, logits, probs_all
 
 def process_and_predict(input_folder, output_root, config, device, segmenter, model):
     start_time = time.time()
@@ -66,135 +227,89 @@ def process_and_predict(input_folder, output_root, config, device, segmenter, mo
     ID_TO_LABEL = {0: 'f', 1: 'o', 2: 'sn', 3: 'n'}
     pos_shifts = config.get("position_shifts", {})
 
-    for idx, img_p in enumerate(image_paths):
-        status_text.text(f"Processing {idx + 1}/{total_images}: {img_p.name}")
-        
-        try:
-            sn, position = extract_sn_and_pos(img_p.name)
-        except Exception as e:
-            raw_predictions.append({
-                "SN": "Unknown", "Position": "Unknown", "Prediction": "Error",
-                "Confidence": 0.0, "Action": "Review", 
-                "image_path": str(img_p), "Error Description": f"Filename identification failed: {e}"
-            })
-            continue
+    # ThreadPoolExecutor for background file writes (Item 1: CPU-GPU overlap)
+    file_executor = ThreadPoolExecutor(max_workers=4)
+    
+    batch_items = []
+    max_batch_size = 8
 
-        if not segmenter.load_image(str(img_p)):
-            raw_predictions.append({
-                "SN": sn, "Position": position, "Prediction": "Error",
-                "Confidence": 0.0, "Action": "Review", 
-                "image_path": str(img_p), "Error Description": "Image could not be loaded or identified"
-            })
-            continue
+    # Start SAM3 segmentations in parallel (Item 1 & 2: Task Parallelism & Prefetching)
+    sam3_threads = config.get("sam3_threads", 4)
+    with ThreadPoolExecutor(max_workers=sam3_threads) as sam_executor:
+        # Submit all images to run in parallel threads
+        futures = [
+            sam_executor.submit(segment_single_image, img_p, segmenter, config, pos_shifts, dino_transform)
+            for img_p in image_paths
+        ]
+
+        # Gather results in the exact original order of image_paths (Ordered Prefetching)
+        for idx, img_p in enumerate(image_paths):
+            status_text.text(f"Processing {idx + 1}/{total_images}: {img_p.name}")
             
-        cell = get_grid_cell_from_name(img_p.name)
-        if cell is None or not segmenter.select_crop_region(cell):
-            raw_predictions.append({
-                "SN": sn, "Position": position, "Prediction": "Error",
-                "Confidence": 0.0, "Action": "Review", 
-                "image_path": str(img_p), "Error Description": "Grid crop region selection failed"
+            # Wait for this specific image's SAM3 segmentation to complete
+            res = futures[idx].result()
+            
+            sn = res["sn"]
+            position = res["position"]
+
+            if not res["success"]:
+                # Record error predicting immediately
+                raw_predictions.append({
+                    "idx": idx,
+                    "SN": sn, "Position": position, "Prediction": "Error",
+                    "Confidence": 0.0,
+                    "f confidence": 0.0, "o confidence": 0.0, "sn confidence": 0.0, "n confidence": 0.0,
+                    "Action": "Review", 
+                    "image_path": str(img_p), "Error Description": res["error_desc"]
+                })
+                progress_bar.progress((idx + 1) / total_images)
+                continue
+
+            # Flush current batch if SN changes
+            if batch_items and batch_items[0]["sn"] != sn:
+                process_active_batch(batch_items, model, device, config, ID_TO_LABEL, raw_predictions, processed_images_dir, file_executor)
+                batch_items = []
+
+            # Add to the active DINOv3 batch queue (Item 2: Batching)
+            batch_items.append({
+                "idx": idx,
+                "sn": sn,
+                "position": position,
+                "img_p": img_p,
+                "final_image": res["final_image"],
+                "input_tensor": res["input_tensor"],
+                "patch_mask": res["patch_mask"],
+                "lap": res["lap"]
             })
-            continue
 
-        result = segmenter.add_text_prompt("building")
-        
-        if not result or len(result.get("masks", [])) == 0:
-            raw_predictions.append({
-                "SN": sn, "Position": position, "Prediction": "Error",
-                "Confidence": 0.0, "Action": "Review", 
-                "image_path": str(img_p), "Error Description": "SAM3 segmentation failed to find building masks"
-            })
-            continue
+            if len(batch_items) >= max_batch_size:
+                process_active_batch(batch_items, model, device, config, ID_TO_LABEL, raw_predictions, processed_images_dir, file_executor)
+                batch_items = []
 
-        crop = segmenter.current_crop.copy()
-        h_crop, w_crop = crop.shape[:2]
-        bboxes = []
-        
-        for mask in result["masks"]:
-            mask_np = mask[0].cpu().numpy() if hasattr(mask[0], "cpu") else mask[0]
-            if mask_np.ndim == 3: mask_np = mask_np[0]
-            mask_uint = (mask_np > 0.5).astype(np.uint8)
-            mask_resized = cv2.resize(mask_uint, (w_crop, h_crop), interpolation=cv2.INTER_NEAREST)
-            ys, xs = np.where(mask_resized > 0)
-            if xs.size == 0: continue
-            x0, y0 = int(xs.min()), int(ys.min())
-            x1, y1 = int(xs.max()) + 1, int(ys.max()) + 1
-            bboxes.append([x0, y0, x1, y1])
-            if len(bboxes) == 2:
-                break
+            if (idx + 1) % 50 == 0:
+                torch.cuda.empty_cache()
+                gc.collect()
 
-        if len(bboxes) < 2:
-            raw_predictions.append({
-                "SN": sn, "Position": position, "Prediction": "Error",
-                "Confidence": 0.0, "Action": "Review", 
-                "image_path": str(img_p), "Error Description": f"SAM3 failed to detect two buildings (found {len(bboxes)})"
-            })
-            continue
+            progress_bar.progress((idx + 1) / total_images)
 
-        dx, dy = pos_shifts.get(position, pos_shifts.get(str(position), [-50, 0]))
+    # Process remaining batch items
+    if batch_items:
+        process_active_batch(batch_items, model, device, config, ID_TO_LABEL, raw_predictions, processed_images_dir, file_executor)
+        batch_items = []
 
-        final_image = directional_crop_and_pad(
-            crop, bboxes,
-            target_size=tuple(config.get("target_size", (200, 200))),
-            dx=dx,
-            dy=dy
-        )
-
-        input_tensor = dino_transform(Image.fromarray(cv2.cvtColor(final_image, cv2.COLOR_BGR2RGB))).unsqueeze(0).to(device)
-        patch_mask = get_horizontal_patch_mask_from_array(final_image).unsqueeze(0).to(device)
-        lap = get_laplacian_tensor_from_array(final_image).to(device)
-
-        with torch.no_grad():
-            logits = model(input_tensor, patch_mask, lap)
-            probs = torch.softmax(logits, dim=1)[0]
-
-        ok_idx = config.get("ok_class_index", 1)
-        ok_prob = probs[ok_idx].item()
-        
-        if ok_prob >= config.get("confidence_gate", 0.9):
-            final_pred = "o"
-            conf = ok_prob
-        else:
-            defect_idxs = [i for i in range(len(probs)) if i != ok_idx]
-            defect_probs = probs[defect_idxs]
-            max_idx = defect_idxs[int(torch.argmax(defect_probs).item())]
-            final_pred = ID_TO_LABEL.get(max_idx, str(max_idx))
-            conf = probs[max_idx].item()
-
-            sn_thresh_raw = (
-                config.get("sn_count_threshold_percent") or 
-                config.get("sn_single_threshold_percent", 45)
-            )
-
-            sn_thresh = sn_thresh_raw / 100.0 if sn_thresh_raw >= 1.0 else sn_thresh_raw
-
-            if final_pred == 'sn' and conf < sn_thresh:
-                final_pred = 'o'
-                conf = ok_prob
-
-        raw_predictions.append({
-            "SN": sn, "Position": position, "Prediction": final_pred,
-            "Confidence": round(conf * 100, 2), "Action": "Evaluate", "image_path": str(img_p),
-            "Error Description": ""
-        })
-
-        unit_img_dir = processed_images_dir / str(sn)
-        unit_img_dir.mkdir(parents=True, exist_ok=True)
-        out_path = unit_img_dir / img_p.name
-        Image.fromarray(cv2.cvtColor(final_image, cv2.COLOR_BGR2RGB)).save(out_path)
-
-        del input_tensor, patch_mask, lap, logits, probs
-        if idx % 50 == 0:
-            torch.cuda.empty_cache()
-            gc.collect()
-
-        progress_bar.progress((idx + 1) / total_images)
+    # Shutdown background worker pool and wait for all image writes to complete
+    file_executor.shutdown(wait=True)
+    
+    # Final VRAM cache flush
+    torch.cuda.empty_cache()
+    gc.collect()
         
     status_text.text("Image processing complete. Generating reports...")
 
+    raw_predictions.sort(key=lambda x: x.pop("idx", 0))
     df_raw = pd.DataFrame(raw_predictions)
     if df_raw.empty:
-        raise RuntimeError("No predictions generated. Check input folder and model outputs.")
+        raise RuntimeError("No predictions generated. Check model outputs.")
 
     target_positions = config.get("target_positions", [1, 3, 5, 7, 9])
     consolidated = []
@@ -213,9 +328,17 @@ def process_and_predict(input_folder, output_root, config, device, segmenter, mo
             if not rec.empty:
                 row[f"pos {pos} predict"] = rec.iloc[0]["Prediction"]
                 row[f"pos {pos} confidence"] = f"{rec.iloc[0]['Confidence']}%"
+                row[f"pos {pos} f confidence"] = f"{rec.iloc[0]['f confidence']}%"
+                row[f"pos {pos} o confidence"] = f"{rec.iloc[0]['o confidence']}%"
+                row[f"pos {pos} sn confidence"] = f"{rec.iloc[0]['sn confidence']}%"
+                row[f"pos {pos} n confidence"] = f"{rec.iloc[0]['n confidence']}%"
             else:
                 row[f"pos {pos} predict"] = "Missing"
                 row[f"pos {pos} confidence"] = "N/A"
+                row[f"pos {pos} f confidence"] = "N/A"
+                row[f"pos {pos} o confidence"] = "N/A"
+                row[f"pos {pos} sn confidence"] = "N/A"
+                row[f"pos {pos} n confidence"] = "N/A"
                 has_missing_position = True
                 errors.append(f"Position {pos} is missing from the dataset")
                 
@@ -276,10 +399,18 @@ def process_and_predict(input_folder, output_root, config, device, segmenter, mo
             for pos in target_positions:
                 pred_val = row.get(f"pos {pos} predict", "o")
                 conf_val = row.get(f"pos {pos} confidence", "0.0%")
+                f_conf = row.get(f"pos {pos} f confidence", "0.0%")
+                o_conf = row.get(f"pos {pos} o confidence", "0.0%")
+                sn_conf = row.get(f"pos {pos} sn confidence", "0.0%")
+                n_conf = row.get(f"pos {pos} n confidence", "0.0%")
 
                 unit_json_data["positions"][f"pos {pos}"] = {
                     "model_predict": pred_val,
                     "model_confidence": conf_val,
+                    "model_f_confidence": f_conf,
+                    "model_o_confidence": o_conf,
+                    "model_sn_confidence": sn_conf,
+                    "model_n_confidence": n_conf,
                     "human_annotation": pred_val
                 }
 
@@ -296,15 +427,20 @@ def process_and_predict(input_folder, output_root, config, device, segmenter, mo
         review_mask = df_final["Status"].isin(["异常复核 (FLC)", "待人工审查 (Review)"])
         df_filtered = df_final[review_mask].copy()
 
-        filtered_csv = dataset_output_dir / config.get("filtered_csv", "predictions_filtered.csv")
-        filtered_xlsx = dataset_output_dir / config.get("filtered_excel", "predictions_filtered.xlsx")
-        df_filtered.to_csv(filtered_csv, index=False)
+        filtered_json = dataset_output_dir / "predictions_filtered.json"
+        filtered_xlsx = dataset_output_dir / "predictions_filtered.xlsx"
+        df_filtered.to_json(filtered_json, orient="records", indent=4)
         df_filtered.to_excel(filtered_xlsx, index=False)
 
-    full_csv = dataset_output_dir / config.get("output_csv", "consolidated_batch_predictions.csv")
-    full_xlsx = dataset_output_dir / config.get("output_excel", "consolidated_batch_predictions.xlsx")
-    df_final.to_csv(full_csv, index=False)
+    full_json = dataset_output_dir / "consolidated_batch_predictions.json"
+    full_xlsx = dataset_output_dir / "consolidated_batch_predictions.xlsx"
+    df_final.to_json(full_json, orient="records", indent=4)
     df_final.to_excel(full_xlsx, index=False)
+
+    raw_json = dataset_output_dir / "raw_predictions.json"
+    raw_xlsx = dataset_output_dir / "raw_predictions.xlsx"
+    df_raw.to_json(raw_json, orient="records", indent=4)
+    df_raw.to_excel(raw_xlsx, index=False)
 
     status_text.text("Reports successfully generated!")
     elapsed_time = time.time() - start_time
@@ -314,9 +450,11 @@ def process_and_predict(input_folder, output_root, config, device, segmenter, mo
     rev_check_count = int((df_final["Status"] == "待人工审查 (Review)").sum()) if paired_cols else 0
 
     return {
-        "full_csv": str(full_csv),
+        "full_json": str(full_json),
         "full_xlsx": str(full_xlsx),
-        "filtered_csv": str(filtered_csv) if paired_cols else "Skipped (No valid pairs)",
+        "raw_json": str(raw_json),
+        "raw_xlsx": str(raw_xlsx),
+        "filtered_json": str(filtered_json) if paired_cols else "Skipped (No valid pairs)",
         "filtered_xlsx": str(filtered_xlsx) if paired_cols else "Skipped",
         "processed_images_folder": str(processed_images_dir),
         "total_units": len(df_final),

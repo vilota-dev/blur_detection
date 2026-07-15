@@ -7,9 +7,6 @@ from utils.image_utils import CropGridSelector
 
 class Sam3BuildingSegmenter:
     def __init__(self, model_path=None, bpe_path=None):
-        self.current_image = None
-        self.current_crop = None
-        self.grid_selector = None
         self.processor = None
         self._init_model(model_path, bpe_path)
 
@@ -32,33 +29,36 @@ class Sam3BuildingSegmenter:
             self.model = self.model.to("cuda")
             self.model.eval()
 
-            self.processor = Sam3Processor(self.model)
+            # Compile the backbone encoder to optimize performance if enabled in config
+            if cfg.get("compile_sam3_backbone", False):
+                self.model.backbone = torch.compile(self.model.backbone, mode="reduce-overhead")
+
+            # Initialize Sam3Processor with resolution from config (default to 1008)
+            resolution = cfg.get("sam3_resolution", 1008)
+            self.processor = Sam3Processor(self.model, resolution=resolution)
 
         except Exception as e:
             print(f"Error loading SAM3 model: {e}")
             raise ImportError("sam3 not available or failed to load: " + str(e))
 
-    def load_image(self, image_path: str) -> bool:
+    def load_image(self, image_path: str) -> np.ndarray:
         try:
-            img_pil = Image.open(image_path).convert("RGB")
-            self.current_image = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
-            self.grid_selector = CropGridSelector(self.current_image)
-            return True
+            return cv2.imread(image_path)
         except Exception as e:
             print(f"Error loading image: {e}")
-            return False
+            return None
 
-    def select_crop_region(self, cell_num: int) -> bool:
+    def select_crop_region(self, image: np.ndarray, cell_num: int) -> np.ndarray:
         try:
-            self.current_crop = self.grid_selector.get_crop(cell_num)
-            return True
+            grid_selector = CropGridSelector(image)
+            return grid_selector.get_crop(cell_num)
         except Exception as e:
             print(f"Error selecting crop: {e}")
-            return False
+            return None
 
-    def add_text_prompt(self, text: str, blur_method: str = "lap"):
+    def add_text_prompt(self, crop: np.ndarray, text: str):
         try:
-            crop_pil = Image.fromarray(cv2.cvtColor(self.current_crop, cv2.COLOR_BGR2RGB))
+            crop_pil = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
 
             with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
                 state = self.processor.set_image(crop_pil)

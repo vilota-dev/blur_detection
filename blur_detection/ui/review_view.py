@@ -9,9 +9,9 @@ LANG_REVIEW = {
     "EN": {
         "header": "Image Review & Annotation",
         "info": "Load your consolidated batch predictions to review cropped images and add human annotations.",
-        "p_csv": "Path to Predictions CSV",
+        "p_csv": "Path to Predictions JSON/Excel",
         "p_folder": "Path to Processed Images Folder",
-        "valid_csv": "Please provide a valid CSV path to begin.",
+        "valid_csv": "Please provide a valid JSON or Excel path to begin.",
         "refresh": "Refresh Data",
         "filter_lbl": "🔍 Filter Checklist / Review Units by Status",
         "filter_help": "Select specific statuses to customize the active review queue layout dynamically.",
@@ -30,10 +30,10 @@ LANG_REVIEW = {
     },
     "ZH": {
         "header": "图像数据审查与标注面板",
-        "info": "加载整合的批处理预测 CSV 数据集，以审查裁剪图块并直接附加人工校准结论。",
-        "p_csv": "预测结果 CSV 路径",
+        "info": "加载整合的批处理预测 JSON/Excel 数据集，以审查裁剪图块并直接附加人工校准结论。",
+        "p_csv": "预测结果 JSON/Excel 路径",
         "p_folder": "已过滤图像文件夹路径",
-        "valid_csv": "请提供有效的 CSV 路径以启动面板。",
+        "valid_csv": "请提供有效的 JSON 或 Excel 路径以启动面板。",
         "refresh": "刷新数据",
         "filter_lbl": "🔍 依据状态过滤审查队列明细",
         "filter_help": "选中特定的业务状态，动态定制当前活动审查队列的布局。",
@@ -174,15 +174,15 @@ def render_review_tab():
 
     output_root_val = st.session_state.app_config.get("default_output_root", "")
     
-    fallback_csv = str(Path(output_root_val) / "dataset_output" / "consolidated_batch_predictions.csv") if output_root_val else ""
+    fallback_json = str(Path(output_root_val) / "dataset_output" / "consolidated_batch_predictions.json") if output_root_val else ""
     fallback_folder = str(Path(output_root_val) / "processed_images") if output_root_val else ""
 
-    default_review_csv = st.session_state.get("review_csv_path", fallback_csv)
+    default_review_json = st.session_state.get("review_csv_path", fallback_json)
     default_review_img = st.session_state.get("review_img_folder", fallback_folder)
 
     col_csv, col_img, col_ref = st.columns([4.5, 4.5, 1])
     with col_csv:
-        csv_path = st.text_input(ln["p_csv"], value=default_review_csv)
+        csv_path = st.text_input(ln["p_csv"], value=default_review_json)
     with col_img:
         img_folder = st.text_input(ln["p_folder"], value=default_review_img)
     with col_ref:
@@ -196,7 +196,8 @@ def render_review_tab():
     st.session_state["review_img_folder"] = img_folder
 
     base_dir = Path(csv_path).parent
-    out_csv_path = base_dir / "human_annotated_predictions.csv"
+    out_json_path = base_dir / "human_annotated_predictions.json"
+    out_xlsx_path = base_dir / "human_annotated_predictions.xlsx"
 
     if not csv_path or not Path(csv_path).exists():
         st.warning(ln["valid_csv"])
@@ -204,17 +205,22 @@ def render_review_tab():
 
     if 'pred_data_cache' not in st.session_state:
         try:
-            st.session_state.pred_data_cache = pd.read_csv(csv_path)
+            if str(csv_path).lower().endswith('.json'):
+                st.session_state.pred_data_cache = pd.read_json(csv_path)
+            elif str(csv_path).lower().endswith('.xlsx') or str(csv_path).lower().endswith('.xls'):
+                st.session_state.pred_data_cache = pd.read_excel(csv_path)
+            else:
+                st.session_state.pred_data_cache = pd.read_csv(csv_path)
         except Exception as e:
-            st.error(f"Error loading CSV: {e}")
+            st.error(f"Error loading file: {e}")
             return
 
     df_master = st.session_state.pred_data_cache
-    master_csv_path = base_dir / "consolidated_batch_predictions.csv"
+    master_json_path = base_dir / "consolidated_batch_predictions.json"
     
-    if master_csv_path.exists() and len(df_master) < 5: 
+    if master_json_path.exists() and len(df_master) < 5: 
         try:
-            df_master = pd.read_csv(master_csv_path)
+            df_master = pd.read_json(master_json_path)
             st.session_state.pred_data_cache = df_master
         except:
             pass
@@ -363,6 +369,10 @@ def render_review_tab():
             updated_json_payload["positions"][f"pos {p}"] = {
                 "model_predict": str(current_row.get(f'pos {p} predict', 'o')).lower(),
                 "model_confidence": str(current_row.get(f'pos {p} confidence', 'N/A')),
+                "model_f_confidence": str(current_row.get(f'pos {p} f confidence', 'N/A')),
+                "model_o_confidence": str(current_row.get(f'pos {p} o confidence', 'N/A')),
+                "model_sn_confidence": str(current_row.get(f'pos {p} sn confidence', 'N/A')),
+                "model_n_confidence": str(current_row.get(f'pos {p} n confidence', 'N/A')),
                 "human_annotation": cached_current[f'pos {p}']
             }
         with open(json_path, "w") as jf: json.dump(updated_json_payload, jf, indent=4)
@@ -413,15 +423,27 @@ def render_review_tab():
             annotated_rows.append({
                 "SN": sn_loop, "pos 1": anno['pos 1'], "pos 3": anno['pos 3'], "pos 5": anno['pos 5'], "pos 7": anno['pos 7'], "pos 9": anno['pos 9'],
                 "pos 1 predict": row.get('pos 1 predict', ''), "pos 1 confidence": row.get('pos 1 confidence', ''),
+                "pos 1 f confidence": row.get('pos 1 f confidence', ''), "pos 1 o confidence": row.get('pos 1 o confidence', ''),
+                "pos 1 sn confidence": row.get('pos 1 sn confidence', ''), "pos 1 n confidence": row.get('pos 1 n confidence', ''),
                 "pos 3 predict": row.get('pos 3 predict', ''), "pos 3 confidence": row.get('pos 3 confidence', ''),
+                "pos 3 f confidence": row.get('pos 3 f confidence', ''), "pos 3 o confidence": row.get('pos 3 o confidence', ''),
+                "pos 3 sn confidence": row.get('pos 3 sn confidence', ''), "pos 3 n confidence": row.get('pos 3 n confidence', ''),
                 "pos 5 predict": row.get('pos 5 predict', ''), "pos 5 confidence": row.get('pos 5 confidence', ''),
+                "pos 5 f confidence": row.get('pos 5 f confidence', ''), "pos 5 o confidence": row.get('pos 5 o confidence', ''),
+                "pos 5 sn confidence": row.get('pos 5 sn confidence', ''), "pos 5 n confidence": row.get('pos 5 n confidence', ''),
                 "pos 7 predict": row.get('pos 7 predict', ''), "pos 7 confidence": row.get('pos 7 confidence', ''),
+                "pos 7 f confidence": row.get('pos 7 f confidence', ''), "pos 7 o confidence": row.get('pos 7 o confidence', ''),
+                "pos 7 sn confidence": row.get('pos 7 sn confidence', ''), "pos 7 n confidence": row.get('pos 7 n confidence', ''),
                 "pos 9 predict": row.get('pos 9 predict', ''), "pos 9 confidence": row.get('pos 9 confidence', ''),
+                "pos 9 f confidence": row.get('pos 9 f confidence', ''), "pos 9 o confidence": row.get('pos 9 o confidence', ''),
+                "pos 9 sn confidence": row.get('pos 9 sn confidence', ''), "pos 9 n confidence": row.get('pos 9 n confidence', ''),
                 "Status": action_status, "number of correct \"o\"": correct_o, "number of incorrect \"o\"": incorrect_o
             })
             
         if annotated_rows: 
-            pd.DataFrame(annotated_rows).to_csv(out_csv_path, index=False)
+            df_anno = pd.DataFrame(annotated_rows)
+            df_anno.to_json(out_json_path, orient="records", indent=4)
+            df_anno.to_excel(out_xlsx_path, index=False)
 
     def render_control_deck(location_key):
         st.write(f"### {ln['record']}: {st.session_state.review_idx + 1} / {len(df_filtered_view)}")
@@ -555,4 +577,4 @@ def render_review_tab():
     st.divider()
     render_control_deck(location_key="bottom")
     st.divider()
-    st.caption(f"{ln['sys_log']} `{out_csv_path}`")
+    st.caption(f"{ln['sys_log']} `{out_json_path}`")

@@ -117,3 +117,48 @@ def get_laplacian_tensor_from_array(img_bgr):
     lap = F.conv2d(gray_t, lap_kernel, padding=1)
 
     return torch.abs(lap)
+
+def stretch_contrast(image: np.ndarray, low_percentile: float = 1.0, high_percentile: float = 99.0) -> np.ndarray:
+    # Convert BGR to HSV
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    h, s, v = cv2.split(hsv)
+    
+    # Clip and stretch the V (brightness) channel based on percentiles
+    low_val, high_val = np.percentile(v, (low_percentile, high_percentile))
+    v_stretched = np.clip(v, low_val, high_val)
+    if high_val > low_val:
+        v_stretched = ((v_stretched - low_val) / (high_val - low_val) * 255.0).astype(np.uint8)
+    else:
+        v_stretched = v_stretched.astype(np.uint8)
+        
+    # Merge back and convert to BGR
+    hsv_stretched = cv2.merge((h, s, v_stretched))
+    return cv2.cvtColor(hsv_stretched, cv2.COLOR_HSV2BGR)
+
+def equalize_contrast(image: np.ndarray) -> np.ndarray:
+    # Convert BGR to HSV
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    h, s, v = cv2.split(hsv)
+    
+    # Apply global histogram equalization to the V channel
+    v_equalized = cv2.equalizeHist(v)
+    
+    # Merge back and convert to BGR
+    hsv_equalized = cv2.merge((h, s, v_equalized))
+    return cv2.cvtColor(hsv_equalized, cv2.COLOR_HSV2BGR)
+
+def stretch_contrast_rgb(image: np.ndarray, low_percentile: float = 1.0, high_percentile: float = 99.0) -> np.ndarray:
+    # Clip and stretch BGR channels globally based on percentiles
+    low_val, high_val = np.percentile(image, (low_percentile, high_percentile))
+    stretched = np.clip(image, low_val, high_val)
+    if high_val > low_val:
+        stretched = ((stretched - low_val) / (high_val - low_val) * 255.0).astype(np.uint8)
+    else:
+        stretched = stretched.astype(np.uint8)
+    return stretched
+
+def adjust_gamma(image: np.ndarray, gamma: float = 1.0) -> np.ndarray:
+    # Adjust image brightness non-linearly using a lookup table
+    invGamma = 1.0 / gamma
+    table = np.array([((i / 255.0) ** invGamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
+    return cv2.LUT(image, table)

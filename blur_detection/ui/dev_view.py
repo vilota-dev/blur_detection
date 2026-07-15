@@ -53,13 +53,13 @@ def render_dev_tab():
         
         def trigger_auto_refilter():
             filt_dir = Path(st.session_state.get('filtered_dir_path', Path.home() / "566-qa-2/filtered_images"))
-            consolidated_file = filt_dir / "consolidated_batch_predictions.csv"
-            filtered_file_csv = filt_dir / "predictions_filtered.csv"
+            consolidated_file = filt_dir / "consolidated_batch_predictions.json"
+            filtered_file_json = filt_dir / "predictions_filtered.json"
             filtered_file_xlsx = filt_dir / "predictions_filtered.xlsx"
             
             if consolidated_file.exists():
                 try:
-                    df_all = pd.read_csv(consolidated_file)
+                    df_all = pd.read_json(consolidated_file)
                     config = st.session_state.app_config
                     target_positions = config.get("target_positions", [1, 3, 5, 7, 9])
                     paired_cols = [(f'pos {pos} predict', f'pos {pos} confidence') for pos in target_positions if f'pos {pos} predict' in df_all.columns and f'pos {pos} confidence' in df_all.columns]
@@ -80,10 +80,10 @@ def render_dev_tab():
                             selected_mask = has_n_mask | any_sn_single_mask
 
                         df_filtered = df_all[selected_mask].copy()
-                        df_filtered.to_csv(filtered_file_csv, index=False, encoding='utf-8-sig')
+                        df_filtered.to_json(filtered_file_json, orient="records", indent=4)
                         df_filtered.to_excel(filtered_file_xlsx, index=False)
                         
-                        st.success(f"{ln['refilter_ok']} -> `{filtered_file_csv.name}`")
+                        st.success(f"{ln['refilter_ok']} -> `{filtered_file_json.name}`")
                         st.metric(ln["refilter_row"], len(df_filtered))
                 except Exception as e:
                     st.error(f"Failed to auto-refilter: {e}")

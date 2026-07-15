@@ -30,7 +30,7 @@ def main():
     
     # Language Selection Component
     if 'lang' not in st.session_state:
-        st.session_state.lang = "ZH"
+        st.session_state.lang = cfg.get("default_language", "EN")
         
     col_title, col_lang = st.columns([8, 2])
     with col_lang:
