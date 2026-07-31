@@ -51,7 +51,7 @@ dependencies:
       - tqdm
       - typing_extensions
       - huggingface_hub
-      - certifi==2020.12.5
+      - certifi>=2024.2.2
       - PyWavelets>=1.4.1
       
       # SAM3 Extended/Training Dependencies

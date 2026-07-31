@@ -16,6 +16,31 @@ DEFAULT_MODEL_PATHS = {
 
 CONFIG_PATH = SCRIPT_DIR / "config.yaml"
 
+def resolve_path(p_str):
+    if not p_str:
+        return p_str
+    p = Path(p_str)
+    if p.is_absolute() and p.exists():
+        return str(p)
+    if p.exists():
+        return str(p.resolve())
+    
+    script_rel = SCRIPT_DIR / p
+    if script_rel.exists():
+        return str(script_rel.resolve())
+    
+    p_s = str(p_str)
+    if p_s.startswith("blur_detection/"):
+        stripped = SCRIPT_DIR / p_s.replace("blur_detection/", "", 1)
+        if stripped.exists():
+            return str(stripped.resolve())
+            
+    by_filename = MODELS_DIR / p.name
+    if by_filename.exists():
+        return str(by_filename.resolve())
+
+    return str((SCRIPT_DIR / p).resolve())
+
 def load_config(path=CONFIG_PATH):
     cfg = {}
     if path.exists():
@@ -25,6 +50,12 @@ def load_config(path=CONFIG_PATH):
                 cfg.update(loaded)
     for k, v in DEFAULT_MODEL_PATHS.items():
         cfg.setdefault(k, v)
+        
+    path_keys = ["bpe_path", "trained_head_path", "dino_backbone_weights", "sam3_checkpoint"]
+    for k in path_keys:
+        if k in cfg:
+            cfg[k] = resolve_path(cfg[k])
+
     return cfg
 
 cfg = load_config()
