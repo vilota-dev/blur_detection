@@ -52,7 +52,8 @@ def render_dev_tab():
         new_yaml = st.text_area("config.yaml", value=st.session_state.yaml_text, height=400)
         
         def trigger_auto_refilter():
-            filt_dir = Path(st.session_state.get('filtered_dir_path', Path.home() / "566-qa-2/filtered_images"))
+            default_out_root = Path(st.session_state.app_config.get("default_output_root", "/data/output"))
+            filt_dir = Path(st.session_state.get('filtered_dir_path', default_out_root / "dataset_output"))
             consolidated_file = filt_dir / "consolidated_batch_predictions.json"
             filtered_file_json = filt_dir / "predictions_filtered.json"
             filtered_file_xlsx = filt_dir / "predictions_filtered.xlsx"
@@ -114,7 +115,8 @@ def render_dev_tab():
     with sub_merge:
         st.subheader(ln["merger_title"])
         st.write(ln["out_cfg"])
-        default_out = str(Path.home() / "566-qa-2" / "merge" / "remapped_merged_dataset.csv")
+        default_out_root = Path(st.session_state.app_config.get("default_output_root", "/data/output"))
+        default_out = str(default_out_root / "merge" / "remapped_merged_dataset.csv")
         full_output_path_str = st.text_input(ln["out_path_lbl"], value=default_out)
 
         st.write(ln["val_cfg"])

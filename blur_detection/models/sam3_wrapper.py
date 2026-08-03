@@ -48,9 +48,9 @@ class Sam3BuildingSegmenter:
             print(f"Error loading image: {e}")
             return None
 
-    def select_crop_region(self, image: np.ndarray, cell_num: int) -> np.ndarray:
+    def select_crop_region(self, image: np.ndarray, cell_num: int, config: dict = None) -> np.ndarray:
         try:
-            grid_selector = CropGridSelector(image)
+            grid_selector = CropGridSelector(image, config=config)
             return grid_selector.get_crop(cell_num)
         except Exception as e:
             print(f"Error selecting crop: {e}")

@@ -59,7 +59,7 @@ def segment_single_image(img_p, segmenter, config, pos_shifts, dino_transform):
             "error_desc": "Grid crop region selection failed"
         }
     
-    crop = segmenter.select_crop_region(image, cell)
+    crop = segmenter.select_crop_region(image, cell, config=config)
     if crop is None:
         return {
             "success": False,

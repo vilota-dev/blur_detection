@@ -14,9 +14,10 @@ def apply_clahe(image: np.ndarray, clip_limit: float = 2.0, tile_size: int = 8) 
     return clahe.apply(image)
 
 class CropGridSelector:
-    def __init__(self, image: np.ndarray, grid_size: int = 3):
+    def __init__(self, image: np.ndarray, grid_size: int = 3, config: dict = None):
         self.image = image
-        self.grid_size = grid_size
+        self.config = config or {}
+        self.grid_size = self.config.get("sam3_crop_grid_size", grid_size)
         self.h, self.w = image.shape[:2]
 
     def get_grid_coords(self):
@@ -40,8 +41,31 @@ class CropGridSelector:
             raise ValueError(f"Cell must be 1-{self.grid_size**2}")
         x0, y0, x1, y1 = coords[cell_num]
         
-        if cell_num in {1, 7}:
-            x1 = max(x0, x1 - 200)
+        cell_key = cell_num
+        cell_str = str(cell_num)
+        
+        cell_crops = self.config.get("sam3_cell_crops", {})
+        if cell_key in cell_crops or cell_str in cell_crops:
+            custom_box = cell_crops.get(cell_key, cell_crops.get(cell_str))
+            if len(custom_box) == 4:
+                x0, y0, x1, y1 = custom_box
+        else:
+            cell_offsets = self.config.get("sam3_cell_crop_offsets", {})
+            if cell_key in cell_offsets or cell_str in cell_offsets:
+                offsets = cell_offsets.get(cell_key, cell_offsets.get(cell_str))
+                if len(offsets) == 4:
+                    dx0, dy0, dx1, dy1 = offsets
+                    x0 += dx0
+                    y0 += dy0
+                    x1 += dx1
+                    y1 += dy1
+            elif cell_num in {1, 7}:
+                x1 = max(x0, x1 - 200)
+
+        x0 = max(0, min(self.w - 1, int(x0)))
+        y0 = max(0, min(self.h - 1, int(y0)))
+        x1 = max(x0 + 1, min(self.w, int(x1)))
+        y1 = max(y0 + 1, min(self.h, int(y1)))
             
         return self.image[y0:y1, x0:x1].copy()
 

@@ -22,12 +22,14 @@ def resolve_path(p_str):
     p = Path(p_str)
     if p.is_absolute() and p.exists():
         return str(p)
+
+    if not p.is_absolute():
+        script_rel = SCRIPT_DIR / p
+        if script_rel.exists():
+            return str(script_rel.resolve())
+
     if p.exists():
         return str(p.resolve())
-    
-    script_rel = SCRIPT_DIR / p
-    if script_rel.exists():
-        return str(script_rel.resolve())
     
     p_s = str(p_str)
     if p_s.startswith("blur_detection/"):
@@ -50,6 +52,15 @@ def load_config(path=CONFIG_PATH):
                 cfg.update(loaded)
     for k, v in DEFAULT_MODEL_PATHS.items():
         cfg.setdefault(k, v)
+        
+    cfg.setdefault("sam3_crop_grid_size", 3)
+    cfg.setdefault("sam3_cell_crop_offsets", {
+        1: [0, 0, -200, 0],
+        3: [0, 0, 0, 0],
+        5: [0, 0, 0, 0],
+        7: [0, 0, -200, 0],
+        9: [0, 0, 0, 0],
+    })
         
     path_keys = ["bpe_path", "trained_head_path", "dino_backbone_weights", "sam3_checkpoint"]
     for k in path_keys:
