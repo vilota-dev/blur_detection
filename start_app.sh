@@ -59,8 +59,21 @@ fi
 echo "Environment validation passed! Initializing Streamlit UI..."
 echo "===================================================="
 
-# 5. Initialize shell workspace for Conda commands safely
-eval "$(conda shell.bash hook)"
+# 5. Initialize shell workspace for Conda commands safely. Desktop launchers
+# usually do not inherit the PATH configured by an interactive shell.
+if command -v conda >/dev/null 2>&1; then
+    eval "$(conda shell.bash hook)"
+elif [ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$HOME/anaconda3/etc/profile.d/conda.sh"
+elif [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$HOME/miniconda3/etc/profile.d/conda.sh"
+else
+    echo "CRITICAL: Conda could not be found."
+    echo "   Expected it on PATH or under ~/anaconda3 or ~/miniconda3."
+    exit 1
+fi
 
 # 6. Activate environment and boot up the server core
 conda activate blur_detection

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Blur Detection
+Comment=Launch the Blur Detection application
+Exec=/home/vilota/mingjie/blur_detection/launch_app_terminal.sh
+Path=/home/vilota/mingjie/blur_detection
+Terminal=true
+Icon=applications-graphics
+Categories=Utility;
+StartupNotify=true

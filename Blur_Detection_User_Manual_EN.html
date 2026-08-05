@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Blur Detection Batch Processing System — Windows Docker Operator Manual</title>
+  <link rel="stylesheet" href="manual_en_style.css">
+</head>
+<body>
+  <h1>Blur Detection Batch Processing System</h1>
+  <div class="title-rule"></div>
+  <div class="subtitle">Non-Technical / Quality Inspector User Manual <span class="edition">Windows Docker Edition</span></div>
+
+  <p class="lead">This guide is for daily operators and <strong>does not require programming knowledge</strong>. The system checks photos, organizes the results, and shows the images that need human review. Follow the sections in order.</p>
+
+  <h2>I. Before You Start</h2>
+  <h3>1. Prepare the computer and photos</h3>
+  <ul>
+    <li>Make sure the Windows computer is switched on and working normally.</li>
+    <li>If the photos are on a portable hard drive, USB drive, or portable SSD, connect it and confirm that it opens in File Explorer.</li>
+    <li>Open the program folder and confirm that you can see <code>blur_detection.bat</code>.</li>
+    <li>Docker Desktop must be installed and prepared by IT. If this computer has never run the system, contact IT first.</li>
+  </ul>
+  <div class="note"><strong>Operators do not install anything:</strong> For normal work, you only double-click the start file, select a photo folder, and use the web page. Do not change program files, model files, or Docker settings.</div>
+
+  <h3>2. Check the image names — this is essential</h3>
+  <p>Every filename must use <code>SerialNumber-Position</code>, with one hyphen between the serial number and position.</p>
+  <table class="compact">
+    <thead><tr><th>Example</th><th>Correct?</th><th>Reason</th></tr></thead>
+    <tbody>
+      <tr><td><code>1359-3.jpg</code></td><td><strong>Correct</strong></td><td>Serial number 1359, position 3.</td></tr>
+      <tr><td><code>4582A-9.bmp</code></td><td><strong>Correct</strong></td><td>Serial number 4582A, position 9.</td></tr>
+      <tr><td><code>image_3.jpg</code></td><td>Incorrect</td><td>It does not follow the required hyphen format.</td></tr>
+      <tr><td><code>1359_pos3.png</code></td><td>Incorrect</td><td>Extra text appears before the position.</td></tr>
+    </tbody>
+  </table>
+  <p>Each product normally has images for positions <strong>1, 3, 5, 7, and 9</strong>. Incorrect names or missing positions will be sent for review.</p>
+  <div class="warning"><strong>Most important:</strong> A black command window appears after startup. Keep it open while processing and reviewing. Do not press a key while it is waiting. Closing it or pressing a key at the waiting screen stops the system and makes the web page unavailable.</div>
+
+  <div class="page-break"></div>
+  <h2>II. Start the System and Process Photos</h2>
+  <div class="step"><div class="step-number">1</div><div><strong>Start the program</strong><br>Open the program folder and double-click <code>blur_detection.bat</code>. A black window will appear.</div></div>
+  <div class="step"><div class="step-number">2</div><div><strong>Wait for the system</strong><br>If Docker Desktop is not running, the program opens it automatically. This normally takes 20–45 seconds. Do not close any window.</div></div>
+  <div class="step"><div class="step-number">3</div><div><strong>Tell the system where the photos are</strong><br>When the black window asks <code>Is your data drive external or internal?</code>, press <code>E</code> for a portable drive, USB drive, or portable SSD. Press <code>I</code> for a drive inside the computer.</div></div>
+  <div class="step"><div class="step-number">4</div><div><strong>Select the photo folder</strong><br>Select the folder containing all photos, then click OK. Select the folder—not one individual image.</div></div>
+
+  <h3>Where will the results be saved?</h3>
+  <table class="compact">
+    <thead><tr><th>Photo location</th><th>Example photo folder</th><th>Result folder</th></tr></thead>
+    <tbody>
+      <tr><td>External drive (E)</td><td><code>E:\ProjectA\Photos</code></td><td><code>E:\pipeline_outputs\ProjectA\Photos</code></td></tr>
+      <tr><td>Internal drive (I)</td><td><code>D:\ProjectA\Photos</code></td><td><code>D:\ProjectA\Photos\pipeline_outputs</code></td></tr>
+    </tbody>
+  </table>
+  <p class="small">The result folder is created automatically.</p>
+
+  <div class="step"><div class="step-number">5</div><div><strong>Wait for the web page</strong><br>The operating page opens automatically. If it does not, open Chrome or Edge, enter <code>http://localhost:8501</code> in the address bar, and press Enter.</div></div>
+  <div class="step"><div class="step-number">6</div><div><strong>Start processing</strong><br>Keep the language set to <code>EN</code>. On “Batch Process,” confirm that Input is <code>/data/input</code>, Output is <code>/data/output</code>, and the device is <code>cuda</code>. Click “Run Batch Pipeline Process.”</div></div>
+  <div class="success"><strong>How do I know it is finished?</strong> The page displays “Batch Processing Execution Completed Successfully!” together with totals and processing time. Until then, do not disconnect the data drive or close the browser or black window.</div>
+  <div class="note"><strong>Do not change the two path boxes:</strong> <code>/data/input</code> and <code>/data/output</code> are automatic system locations, not Windows folder names.</div>
+
+  <div class="page-break"></div>
+  <h2>III. Review and Annotate Images</h2>
+  <p>After batch processing, select “Review &amp; Annotate” at the top of the page. The prediction and image locations are normally filled in automatically.</p>
+  <div class="panel">
+    <strong>Review in this order</strong>
+    <ul>
+      <li><strong>Choose records:</strong> Use the status filter to show Review, FLC, or NG records. If unsure, leave all statuses selected.</li>
+      <li><strong>Enlarge an image:</strong> Hold the mouse pointer over an image. Move it away to return to normal.</li>
+      <li><strong>Check every position:</strong> If the system is wrong, click <strong>O, F, SN, N, or NG</strong> beside the image.</li>
+      <li><strong>Confirm the product:</strong> Use “Need FLC,” “Don’t Need FLC,” or “NG (Fail Directly).”</li>
+      <li><strong>Save and continue:</strong> Click “Next” or press <code>→</code>. Use “Previous” or <code>←</code> to go back.</li>
+    </ul>
+  </div>
+
+  <h3>1. What do the five labels mean?</h3>
+  <table>
+    <thead><tr><th style="width:14%">Label</th><th style="width:25%">Meaning</th><th>Use it when</th></tr></thead>
+    <tbody>
+      <tr><td><strong>O</strong></td><td>OK / Normal</td><td>The target position is normal, with no clear offset or distance problem.</td></tr>
+      <tr><td><strong>F</strong></td><td>Far</td><td>The target is clearly too far away, severely offset, or incomplete.</td></tr>
+      <tr><td><strong>SN</strong></td><td>Slightly Near</td><td>The target is slightly too near, but its boundary can still be seen.</td></tr>
+      <tr><td><strong>N</strong></td><td>Near</td><td>The target is much too near, badly blurred or enlarged, or an important area is missing.</td></tr>
+      <tr><td><strong>NG</strong></td><td>Abnormal / Reject</td><td>An image is missing, processing failed, or there is an unacceptable serious problem.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>2. When does the system automatically require FLC?</h3>
+  <p>FLC means that further abnormality review is required. The system requires FLC if any of these occur across positions 1, 3, 5, 7, and 9:</p>
+  <ul>
+    <li>At least one position is <strong>N</strong>;</li>
+    <li>At least one position is <strong>NG</strong>;</li>
+    <li>Three or more positions are <strong>SN</strong>.</li>
+  </ul>
+  <div class="note"><strong>Operator tip:</strong> The three product-level buttons set the whole product status. If you change a position afterward, the system calculates the status again. Check all five positions before giving the final product status.</div>
+
+  <div class="page-break"></div>
+  <h2>IV. View Results and Finish Work</h2>
+  <h3>1. Which files should an operator open?</h3>
+  <p>Open the result folder described earlier, then open <code>dataset_output</code>. For normal work, use the Excel files ending in <code>.xlsx</code>.</p>
+  <table>
+    <thead><tr><th style="width:44%">File</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>consolidated_batch_predictions.xlsx</code></td><td>System results for every product.</td></tr>
+      <tr><td><code>predictions_filtered.xlsx</code></td><td>Only products that need human checking or FLC review.</td></tr>
+      <tr><td><code>human_annotated_predictions.xlsx</code></td><td>Final results saved during human review. This is the main file after inspection is complete.</td></tr>
+      <tr><td><code>raw_predictions.xlsx</code></td><td>Detailed results for individual images; normally used only for troubleshooting.</td></tr>
+    </tbody>
+  </table>
+  <div class="warning"><strong>Do not change system files:</strong> Files ending in <code>.json</code> are used by the system. Do not delete, rename, or edit them. The <code>processed_images</code> folder contains the processed pictures.</div>
+
+  <h3>2. Finish work safely</h3>
+  <ol>
+    <li>Confirm that processing is finished and review changes are saved.</li>
+    <li>Return to the black window and press any key.</li>
+    <li>Wait for the system to stop. Close the window only when it says it is safe.</li>
+    <li>If using a portable drive, safely eject it only after these steps.</li>
+  </ol>
+
+  <h3>3. What should I do if something goes wrong?</h3>
+  <table class="compact">
+    <thead><tr><th style="width:35%">What you see</th><th>What the operator can do</th></tr></thead>
+    <tbody>
+      <tr><td>The web page does not open</td><td>Keep the black window open. Start Docker Desktop, wait until it is ready, then run the start file again.</td></tr>
+      <tr><td>The browser did not open automatically</td><td>Enter <code>http://localhost:8501</code> in Chrome or Edge.</td></tr>
+      <tr><td>The page shows <code>cpu</code></td><td>Stop the program and contact IT. Normal operation should show <code>cuda</code>.</td></tr>
+      <tr><td>The photo folder cannot be found</td><td>Check that the portable drive is connected, then restart and select the folder again.</td></tr>
+      <tr><td>Many products show missing images</td><td>Check filenames and confirm positions 1, 3, 5, 7, and 9 exist for each serial number.</td></tr>
+      <tr><td>The web page suddenly stops working</td><td>Check whether the black window was closed. Restart once; do not start two copies.</td></tr>
+    </tbody>
+  </table>
+  <div class="note"><strong>Still not working?</strong> Do not modify the program. Photograph the black window and web-page error, then send the photos, selected folder location, and time of the problem to IT.</div>
+</body>
+</html>
+

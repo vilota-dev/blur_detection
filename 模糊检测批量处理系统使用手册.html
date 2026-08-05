@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>模糊检测批量处理系统使用手册（Windows Docker 版）</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 15mm 17mm 17mm 17mm;
+      @bottom-left {
+        content: "Vilota 图像质量检验工具手册（v5 · Windows Docker版）";
+        color: #64748b;
+        font-size: 8pt;
+      }
+      @bottom-right {
+        content: "第 " counter(page) " 页 / 共 " counter(pages) " 页";
+        color: #64748b;
+        font-size: 8pt;
+      }
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: #263241;
+      font-family: "Noto Sans CJK SC", "Noto Sans CJK", "Microsoft YaHei", sans-serif;
+      font-size: 10.1pt;
+      line-height: 1.58;
+    }
+    h1 {
+      margin: 14mm 0 2mm;
+      color: #183b65;
+      font-size: 24pt;
+      line-height: 1.25;
+      text-align: center;
+      letter-spacing: .4pt;
+    }
+    .title-rule { height: 2px; background: #2b75b9; margin: 4mm 0 2.5mm; }
+    .subtitle {
+      margin: 0 0 7mm;
+      color: #526275;
+      font-size: 13.5pt;
+      text-align: center;
+    }
+    .edition {
+      display: inline-block;
+      margin-left: 2mm;
+      padding: .4mm 2.4mm;
+      border-radius: 10px;
+      color: #fff;
+      background: #2b75b9;
+      font-size: 8.5pt;
+      vertical-align: 2px;
+    }
+    h2 {
+      margin: 7mm 0 3.2mm;
+      padding-left: 3mm;
+      border-left: 3px solid #2b75b9;
+      color: #236eb1;
+      font-size: 15pt;
+      line-height: 1.35;
+    }
+    h3 {
+      margin: 4mm 0 1.5mm;
+      color: #25364b;
+      font-size: 11.2pt;
+    }
+    p { margin: 1.6mm 0; }
+    ul, ol { margin: 1.5mm 0 2.5mm 5.5mm; padding-left: 4.5mm; }
+    li { margin: 1mm 0; }
+    strong { color: #202b38; }
+    code {
+      padding: .2mm 1mm;
+      border-radius: 2px;
+      color: #e23b3b;
+      background: #f1f5f9;
+      font-family: "Noto Sans Mono CJK SC", "DejaVu Sans Mono", monospace;
+      font-size: 9.4pt;
+      overflow-wrap: anywhere;
+    }
+    .lead { margin-bottom: 4mm; color: #334155; font-size: 10.4pt; }
+    .note, .warning, .success {
+      margin: 3mm 0;
+      padding: 3mm 3.5mm;
+      border-radius: 4px;
+      break-inside: avoid;
+    }
+    .note { border-left: 3px solid #2b75b9; background: #eff7ff; }
+    .warning { border-left: 3px solid #ed8b23; background: #fff8ed; }
+    .success { border-left: 3px solid #2e8b57; background: #effaf4; }
+    .panel {
+      margin: 3mm 0;
+      padding: 3mm 3.5mm;
+      border: 1px dashed #ed8b23;
+      border-radius: 4px;
+      background: #fffaf1;
+      break-inside: avoid;
+    }
+    .step {
+      display: grid;
+      grid-template-columns: 8mm 1fr;
+      column-gap: 2mm;
+      margin: 2.5mm 0;
+      break-inside: avoid;
+    }
+    .step-number {
+      width: 7mm;
+      height: 7mm;
+      border-radius: 50%;
+      color: #fff;
+      background: #2b75b9;
+      font-weight: 700;
+      line-height: 7mm;
+      text-align: center;
+    }
+    table {
+      width: 100%;
+      margin: 2.5mm 0 3mm;
+      border-collapse: collapse;
+      font-size: 9.2pt;
+      break-inside: avoid;
+    }
+    th, td { padding: 2.1mm 2.5mm; border: 1px solid #d7e0ea; vertical-align: top; }
+    th { color: #26364b; background: #eaf1f7; font-weight: 700; text-align: left; }
+    tbody tr:nth-child(even) td { background: #f8fafc; }
+    .compact th, .compact td { padding: 1.6mm 2.2mm; }
+    .tree {
+      margin: 2mm 0 3mm;
+      padding: 3mm 4mm;
+      border: 1px solid #dbe4ee;
+      border-radius: 4px;
+      background: #f8fafc;
+      color: #334155;
+      font-family: "Noto Sans Mono CJK SC", "DejaVu Sans Mono", monospace;
+      font-size: 8.7pt;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+    .small { color: #607084; font-size: 8.8pt; }
+    .page-break { break-before: page; }
+    .avoid-break { break-inside: avoid; }
+  </style>
+</head>
+<body>
+  <h1>模糊检测批量处理系统</h1>
+  <div class="title-rule"></div>
+  <div class="subtitle">非技术人员 / 质检操作员使用手册 <span class="edition">Windows Docker 版</span></div>
+
+  <p class="lead">这是一份给日常操作人员使用的说明书，<strong>不需要编程知识</strong>。系统会自动检查照片、整理结果，并把需要人工确认的图片集中显示出来。请按照页面顺序操作。</p>
+
+  <h2>一、开始前请先检查</h2>
+
+  <h3>1. 准备电脑和照片</h3>
+  <ul>
+    <li>确认 Windows 电脑已经开机，并且网络和显示器工作正常。</li>
+    <li>如果照片在移动硬盘、U 盘或移动 SSD 中，请先连接设备，并确认可在“文件资源管理器”中打开。</li>
+    <li>确认程序文件夹中能看到 <code>blur_detection.bat</code>。</li>
+    <li>Docker Desktop 应由 IT 人员提前安装和设置。若电脑从未运行过本系统，请先联系 IT 人员。</li>
+  </ul>
+
+  <div class="note"><strong>操作员无需安装软件：</strong>日常使用只需双击启动文件、选择照片文件夹和操作网页。请勿自行修改程序文件、模型文件或 Docker 设置。</div>
+
+  <h3>2. 检查图片名称（非常重要）</h3>
+  <p>图片名称必须是 <code>序列号-位置</code>。序列号与位置之间要有一个短横线 <code>-</code>。</p>
+  <table class="compact">
+    <thead><tr><th>例子</th><th>是否正确</th><th>原因</th></tr></thead>
+    <tbody>
+      <tr><td><code>1359-3.jpg</code></td><td><strong>正确</strong></td><td>序列号是 1359，位置是 3。</td></tr>
+      <tr><td><code>4582A-9.bmp</code></td><td><strong>正确</strong></td><td>序列号是 4582A，位置是 9。</td></tr>
+      <tr><td><code>image_3.jpg</code></td><td>错误</td><td>没有使用规定的短横线格式。</td></tr>
+      <tr><td><code>1359_pos3.png</code></td><td>错误</td><td>位置前使用了其他文字。</td></tr>
+    </tbody>
+  </table>
+  <p>每个产品通常应有位置 <strong>1、3、5、7、9</strong> 的图片。名称错误或图片缺少时，系统会要求人工复核。</p>
+
+  <div class="warning">
+    <strong>最重要的提醒：</strong>程序运行后会出现一个黑色窗口。处理和审查期间，请保持这个窗口开启，也不要在窗口等待画面中随意按键。关闭窗口或按键会停止系统，浏览器页面也会无法使用。
+  </div>
+
+  <div class="page-break"></div>
+  <h2>二、启动系统并处理照片</h2>
+
+  <div class="step"><div class="step-number">1</div><div><strong>双击启动文件</strong><br>打开程序文件夹，双击 <code>blur_detection.bat</code>。随后会出现一个黑色窗口。</div></div>
+
+  <div class="step"><div class="step-number">2</div><div><strong>等待系统准备完成</strong><br>如果 Docker Desktop 尚未运行，系统会自动打开它。一般需要等待 20–45 秒。请不要关闭任何窗口。</div></div>
+
+  <div class="step"><div class="step-number">3</div><div><strong>告诉系统照片放在哪里</strong><br>黑色窗口出现 <code>Is your data drive external or internal?</code> 时：<br>照片在移动硬盘、U 盘或移动 SSD，按键盘 <code>E</code>；照片在电脑本机磁盘，按键盘 <code>I</code>。</div></div>
+
+  <div class="step"><div class="step-number">4</div><div><strong>选择照片文件夹</strong><br>文件夹选择窗口出现后，单击存放待检测照片的文件夹，再点击“确定”。不要只选择一张图片，要选择包含图片的整个文件夹。</div></div>
+
+  <h3>处理结果会保存在哪里？</h3>
+  <table class="compact">
+    <thead><tr><th>照片位置</th><th>照片文件夹示例</th><th>结果文件夹</th></tr></thead>
+    <tbody>
+      <tr><td>外接盘（E）</td><td><code>E:\项目A\照片</code></td><td><code>E:\pipeline_outputs\项目A\照片</code></td></tr>
+      <tr><td>内置盘（I）</td><td><code>D:\项目A\照片</code></td><td><code>D:\项目A\照片\pipeline_outputs</code></td></tr>
+    </tbody>
+  </table>
+  <p class="small">系统会自动建立结果文件夹，无需操作员手动创建。</p>
+
+  <div class="step"><div class="step-number">5</div><div><strong>等待网页打开</strong><br>浏览器会自动打开操作页面。若没有自动打开，请打开 Chrome 或 Edge，在地址栏输入 <code>http://localhost:8501</code>，然后按 Enter。</div></div>
+
+  <div class="step"><div class="step-number">6</div><div><strong>开始处理</strong><br>网页右上角选择 <code>ZH</code> 切换为中文。在“批量处理”页确认：输入框显示 <code>/data/input</code>，输出框显示 <code>/data/output</code>，设备显示 <code>cuda</code>。然后点击“运行批量流清洗处理”。</div></div>
+
+  <div class="success">
+    <strong>怎样知道已经完成？</strong>网页会显示“批处理执行完毕”，并列出处理数量、需要复核的数量和处理时间。处理完成前，请勿拔出数据盘、关闭浏览器或关闭黑色窗口。
+  </div>
+
+  <div class="note"><strong>不要修改两个路径框：</strong><code>/data/input</code> 和 <code>/data/output</code> 是系统自动使用的地址，并不是 Windows 文件夹名称。日常操作时保持原样即可。</div>
+
+  <div class="page-break"></div>
+  <h2>三、图像人工审查与标注</h2>
+  <p>批处理完成后，点击网页顶部的“人工审查与标注”。页面中的预测结果和图片位置通常会自动填好，操作员不需要修改。</p>
+
+  <div class="panel">
+    <strong>按照以下顺序审查</strong>
+    <ul>
+      <li><strong>选择要看的记录：</strong>可使用状态筛选，只查看“待人工审查”“FLC”或“NG”等记录。不确定时保持全部选中。</li>
+      <li><strong>放大图片：</strong>把鼠标停在图片上即可放大，移开鼠标即可恢复。</li>
+      <li><strong>检查每个位置：</strong>如果系统判断错误，点击图片左侧的 <strong>OK、太远、稍近、太近或 NG</strong>。</li>
+      <li><strong>确认整个产品：</strong>可点击“需要 FLC 异常复核”“正常无需 FLC”或“报废（直接NG）”。</li>
+      <li><strong>保存并继续：</strong>点击“下一页”保存当前产品并进入下一条。也可以按键盘 <code>→</code>。需要回看时点击“上一页”或按 <code>←</code>。</li>
+    </ul>
+  </div>
+
+  <h3>1. 五个判断按钮是什么意思？</h3>
+  <table>
+    <thead><tr><th style="width:14%">按钮</th><th style="width:25%">意思</th><th>什么时候使用</th></tr></thead>
+    <tbody>
+      <tr><td><strong>OK</strong></td><td>正常</td><td>目标位置正常，没有明显偏移或距离问题。</td></tr>
+      <tr><td><strong>太远</strong></td><td>距离太远</td><td>目标明显太远、严重偏移，或目标区域不完整。</td></tr>
+      <tr><td><strong>稍近</strong></td><td>轻微偏近</td><td>目标有一点偏近，但边界仍可看清。</td></tr>
+      <tr><td><strong>太近</strong></td><td>距离太近</td><td>目标明显过近、严重模糊、被放大，或重要区域看不到。</td></tr>
+      <tr><td><strong>NG</strong></td><td>异常或报废</td><td>图片缺失、系统处理错误，或有无法接受的严重问题。</td></tr>
+    </tbody>
+  </table>
+
+  <h3>2. 什么时候会自动要求 FLC 复核？</h3>
+  <p>FLC 表示“需要进一步异常复核”。位置 1、3、5、7、9 中，出现以下任一情况时，系统会自动要求 FLC：</p>
+  <ul>
+    <li>至少 1 个位置是<strong>太近</strong>；</li>
+    <li>至少 1 个位置是 <strong>NG</strong>；</li>
+    <li>有 3 个或更多位置是<strong>稍近</strong>。</li>
+  </ul>
+  <div class="note"><strong>操作提示：</strong>顶部三个按钮可以直接决定整个产品的状态。如果之后又修改某个位置，系统会重新计算。请在检查完五个位置后，再确认整个产品的最终状态。</div>
+
+  <div class="page-break"></div>
+  <h2>四、查看结果与结束工作</h2>
+
+  <h3>1. 操作员应该查看哪些文件？</h3>
+  <p>打开前面说明的结果文件夹，再进入 <code>dataset_output</code> 文件夹。日常查看请优先打开 Excel 文件（文件名以 <code>.xlsx</code> 结尾）。</p>
+  <table>
+    <thead><tr><th style="width:40%">文件</th><th>用途</th></tr></thead>
+    <tbody>
+      <tr><td><code>consolidated_batch_predictions.xlsx</code></td><td>全部产品的系统检测结果。</td></tr>
+      <tr><td><code>predictions_filtered.xlsx</code></td><td>只包含需要人工检查或 FLC 复核的产品。</td></tr>
+      <tr><td><code>human_annotated_predictions.xlsx</code></td><td>人工审查并保存后的最终结果。质检工作完成后应主要查看此文件。</td></tr>
+      <tr><td><code>raw_predictions.xlsx</code></td><td>每张原始图片的详细检测数据，一般仅在排查问题时使用。</td></tr>
+    </tbody>
+  </table>
+  <div class="warning"><strong>不要修改系统文件：</strong>同一文件夹中的 <code>.json</code> 文件供系统读取。操作员可以查看 Excel，但不要删除、改名或手动编辑 JSON 文件。<code>processed_images</code> 文件夹保存处理后的图片。</div>
+
+  <h3>2. 正确结束工作</h3>
+  <ol>
+    <li>确认网页显示处理已经完成，并且人工审查已保存。</li>
+    <li>回到黑色窗口，按键盘任意键。</li>
+    <li>等待系统自动停止。当窗口提示可以安全关闭时，再关闭窗口。</li>
+    <li>如果使用移动硬盘，请完成以上步骤后再安全弹出硬盘。</li>
+  </ol>
+
+  <h3>3. 遇到问题怎么办？</h3>
+  <table class="compact">
+    <thead><tr><th style="width:34%">看到的情况</th><th>操作员可以这样做</th></tr></thead>
+    <tbody>
+      <tr><td>等待很久，仍未打开网页</td><td>确认黑色窗口没有关闭。手动打开 Docker Desktop，等待它完成启动，再重新双击启动文件。</td></tr>
+      <tr><td>浏览器没有自动打开</td><td>保持黑色窗口开启，在 Chrome 或 Edge 输入 <code>http://localhost:8501</code>。</td></tr>
+      <tr><td>网页显示设备为 <code>cpu</code></td><td>先停止程序，然后联系 IT 人员。正常运行应显示 <code>cuda</code>。</td></tr>
+      <tr><td>系统找不到照片文件夹</td><td>检查移动硬盘是否连接，再重新启动并选择文件夹。</td></tr>
+      <tr><td>很多产品显示图片缺失</td><td>检查文件名格式，并确认每个序列号是否有位置 1、3、5、7、9。</td></tr>
+      <tr><td>网页突然无法使用</td><td>检查黑色窗口是否被关闭。若已关闭，请重新双击启动文件；不要同时启动两次。</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note"><strong>仍然无法解决？</strong>请不要修改程序。拍下黑色窗口和网页错误信息的照片，并把照片、所选文件夹位置和发生时间一起发给 IT 人员。</div>
+
+</body>
+</html>

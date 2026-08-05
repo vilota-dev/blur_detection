@@ -1,0 +1,106 @@
+@page {
+  size: A4;
+  margin: 15mm 17mm 17mm;
+  @bottom-left {
+    content: "Vilota Image Quality Inspection Tool · Operator Manual v5";
+    color: #64748b;
+    font-size: 8pt;
+  }
+  @bottom-right {
+    content: "Page " counter(page) " of " counter(pages);
+    color: #64748b;
+    font-size: 8pt;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  color: #263241;
+  font-family: "DejaVu Sans", Arial, sans-serif;
+  font-size: 9.7pt;
+  line-height: 1.48;
+}
+h1 {
+  margin: 12mm 0 2mm;
+  color: #183b65;
+  font-size: 23pt;
+  line-height: 1.2;
+  text-align: center;
+}
+.title-rule { height: 2px; margin: 4mm 0 2.5mm; background: #2b75b9; }
+.subtitle { margin: 0 0 7mm; color: #526275; font-size: 12.5pt; text-align: center; }
+.edition {
+  display: inline-block;
+  margin-left: 2mm;
+  padding: .5mm 2.5mm;
+  border-radius: 10px;
+  color: #fff;
+  background: #2b75b9;
+  font-size: 8.2pt;
+  vertical-align: 2px;
+}
+h2 {
+  margin: 6.5mm 0 3mm;
+  padding-left: 3mm;
+  border-left: 3px solid #2b75b9;
+  color: #236eb1;
+  font-size: 14.5pt;
+  line-height: 1.3;
+}
+h3 { margin: 4mm 0 1.5mm; color: #25364b; font-size: 10.8pt; }
+p { margin: 1.5mm 0; }
+ul, ol { margin: 1.5mm 0 2.5mm 5.5mm; padding-left: 4.5mm; }
+li { margin: .9mm 0; }
+strong { color: #202b38; }
+code {
+  padding: .2mm 1mm;
+  border-radius: 2px;
+  color: #e23b3b;
+  background: #f1f5f9;
+  font-family: "DejaVu Sans Mono", monospace;
+  font-size: 8.8pt;
+  overflow-wrap: anywhere;
+}
+.lead { margin-bottom: 4mm; color: #334155; font-size: 10pt; }
+.note, .warning, .success, .panel {
+  margin: 3mm 0;
+  padding: 3mm 3.5mm;
+  border-radius: 4px;
+  break-inside: avoid;
+}
+.note { border-left: 3px solid #2b75b9; background: #eff7ff; }
+.warning { border-left: 3px solid #ed8b23; background: #fff8ed; }
+.success { border-left: 3px solid #2e8b57; background: #effaf4; }
+.panel { border: 1px dashed #ed8b23; background: #fffaf1; }
+.step {
+  display: grid;
+  grid-template-columns: 8mm 1fr;
+  column-gap: 2mm;
+  margin: 2.5mm 0;
+  break-inside: avoid;
+}
+.step-number {
+  width: 7mm;
+  height: 7mm;
+  border-radius: 50%;
+  color: #fff;
+  background: #2b75b9;
+  font-weight: 700;
+  line-height: 7mm;
+  text-align: center;
+}
+table {
+  width: 100%;
+  margin: 2.5mm 0 3mm;
+  border-collapse: collapse;
+  font-size: 8.8pt;
+  break-inside: avoid;
+}
+th, td { padding: 2mm 2.4mm; border: 1px solid #d7e0ea; vertical-align: top; }
+th { color: #26364b; background: #eaf1f7; font-weight: 700; text-align: left; }
+tbody tr:nth-child(even) td { background: #f8fafc; }
+.compact th, .compact td { padding: 1.5mm 2.1mm; }
+.small { color: #607084; font-size: 8.4pt; }
+.page-break { break-before: page; }
+
